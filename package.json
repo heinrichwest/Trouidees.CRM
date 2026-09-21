@@ -8,12 +8,16 @@
     "start": "node --env-file-if-exists=.env server.mjs",
     "dev": "node --env-file-if-exists=.env --watch server.mjs",
     "test": "node --test",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "seed:neon": "node --env-file-if-exists=.env.local scripts/seed-neon.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0"
   }
 }

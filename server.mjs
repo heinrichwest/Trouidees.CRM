@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { FirecrawlClient, FirecrawlError } from "./lib/firecrawl.mjs";
 import { buildDiscoveryReport, buildReport } from "./lib/analyze.mjs";
 import { GooglePlacesClient, placeToLead } from "./lib/google-places.mjs";
+import { createLoginSession, currentUser, hashPassword, logout, verifyPassword } from "./lib/auth.mjs";
+import { NeonStore } from "./lib/neon-store.mjs";
 import { addLeadType, deleteCrmLead, deleteLeadType, importCrmLeads, listCrmLeads, listLeadTypes, renameLeadType, updateCrmLead } from "./lib/crm.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
@@ -16,6 +18,16 @@ const crmFile = join(root, "data", "crm", "leads.json");
 const crmTypesFile = join(root, "data", "crm", "types.json");
 const port = Number(process.env.PORT || 4173);
 const jobs = new Map();
+const neonStore = process.env.DATABASE_URL ? new NeonStore(process.env.DATABASE_URL) : null;
+
+const crmListLeads = () => neonStore ? neonStore.listLeads() : listCrmLeads(crmFile);
+const crmListTypes = () => neonStore ? neonStore.listTypes() : listLeadTypes(crmTypesFile, crmFile);
+const crmAddType = (name) => neonStore ? neonStore.addType(name) : addLeadType(crmTypesFile, name);
+const crmRenameType = (oldName, newName) => neonStore ? neonStore.renameType(oldName, newName) : renameLeadType(crmTypesFile, crmFile, oldName, newName);
+const crmDeleteType = (name) => neonStore ? neonStore.deleteType(name) : deleteLeadType(crmTypesFile, crmFile, name);
+const crmImport = (leads, leadType, options = {}) => neonStore ? neonStore.importLeads(leads, leadType, options) : importCrmLeads(crmFile, leads, leadType, crmTypesFile, options);
+const crmUpdateLead = (id, changes) => neonStore ? neonStore.updateLead(id, changes) : updateCrmLead(crmFile, id, changes);
+const crmDeleteLead = (id) => neonStore ? neonStore.deleteLead(id) : deleteCrmLead(crmFile, id);
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -35,6 +47,7 @@ function sendJson(response, status, payload) {
 }
 
 async function readBody(request) {
+  if (request.body && typeof request.body === "object" && !Buffer.isBuffer(request.body)) return request.body;
   let raw = "";
   for await (const chunk of request) {
     raw += chunk;
@@ -266,7 +279,7 @@ function startResearchJob(input, apiKey) {
     const saved = await saveReport(report, job.reportId);
     job.reportId = saved.id;
     job.partialResult = saved;
-    const crm = await importCrmLeads(crmFile, saved.leads || [], input.leadType, crmTypesFile);
+    const crm = await crmImport(saved.leads || [], input.leadType);
     job.progress = {
       ...job.progress,
       message: `Checkpoint saved: ${saved.leads.length} email-qualified leads are safe in the CRM`,
@@ -276,12 +289,12 @@ function startResearchJob(input, apiKey) {
     };
   };
 
-  research(input, apiKey, (progress) => { job.progress = { ...job.progress, ...progress }; }, () => job.cancelRequested === true, input.unlimited ? checkpoint : () => {})
+  job.promise = research(input, apiKey, (progress) => { job.progress = { ...job.progress, ...progress }; }, () => job.cancelRequested === true, input.unlimited ? checkpoint : () => {})
     .then(async (result) => {
       result.generatedAt = new Date(job.createdAt).toISOString();
       const saved = await saveReport(result, job.reportId);
       if (input.unlimited) {
-        await importCrmLeads(crmFile, saved.leads || [], input.leadType, crmTypesFile);
+        await crmImport(saved.leads || [], input.leadType);
       }
       return saved;
     })
@@ -310,7 +323,7 @@ function startMapsJob(input, apiKey) {
   const client = new GooglePlacesClient(apiKey);
   jobs.set(id, job);
 
-  (async () => {
+  job.promise = (async () => {
     const leads = [];
     const seen = new Set();
     const usage = { requests: 0, placesFound: 0, locationsSearched: 0 };
@@ -336,7 +349,7 @@ function startMapsJob(input, apiKey) {
           newLeads.push(lead);
         }
         if (newLeads.length) {
-          await importCrmLeads(crmFile, newLeads, input.leadType, crmTypesFile, { requireEmail: false, requirePhone: input.phoneRequired });
+          await crmImport(newLeads, input.leadType, { requireEmail: false, requirePhone: input.phoneRequired });
         }
         const estimatedRequests = usage.requests + page.requests;
         const partial = buildMapsReport(input, leads, { ...usage, requests: estimatedRequests, locationsSearched: index + 1 }, generatedAt, warnings);
@@ -380,13 +393,15 @@ function reportId(report) {
 }
 
 async function saveReport(report, existingId = "") {
-  await mkdir(reportsRoot, { recursive: true });
   report.id = existingId || reportId(report);
+  if (neonStore) return neonStore.saveReport(report);
+  await mkdir(reportsRoot, { recursive: true });
   await writeFile(join(reportsRoot, `${report.id}.json`), JSON.stringify(report, null, 2), "utf8");
   return report;
 }
 
 async function listReports() {
+  if (neonStore) return neonStore.listReports();
   await mkdir(reportsRoot, { recursive: true });
   const names = (await readdir(reportsRoot)).filter((name) => name.endsWith(".json")).sort().reverse().slice(0, 30);
   const reports = await Promise.all(names.map(async (name) => {
@@ -407,6 +422,11 @@ async function listReports() {
   return reports.filter(Boolean);
 }
 
+async function getReport(id) {
+  if (neonStore) return neonStore.getReport(id);
+  return JSON.parse(await readFile(join(reportsRoot, `${id}.json`), "utf8"));
+}
+
 async function serveStatic(pathname, response) {
   const requested = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   const filePath = resolve(publicRoot, requested);
@@ -423,15 +443,93 @@ async function serveStatic(pathname, response) {
   response.end(content);
 }
 
-const server = http.createServer(async (request, response) => {
+export async function handleRequest(request, response, { serveFiles = true } = {}) {
   const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
   try {
+    if (request.method === "POST" && url.pathname === "/api/auth/login") {
+      if (!neonStore) return sendJson(response, 200, { user: { id: "local-admin", email: "local@localhost", role: "admin", active: true } });
+      const body = await readBody(request);
+      let user = await neonStore.getUserByEmail(body.email);
+      if (!user && await neonStore.countUsers() === 0
+        && String(body.email || "").trim().toLowerCase() === String(process.env.BOOTSTRAP_ADMIN_EMAIL || "").trim().toLowerCase()
+        && String(body.password || "") === String(process.env.BOOTSTRAP_ADMIN_PASSWORD || "")) {
+        await neonStore.createUser({ email: body.email, role: "admin", passwordHash: await hashPassword(body.password) });
+        user = await neonStore.getUserByEmail(body.email);
+      }
+      if (!user || !user.active || !await verifyPassword(body.password, user.password_hash)) throw new RequestError("Invalid email or password.", 401);
+      await createLoginSession(neonStore, user, response);
+      return sendJson(response, 200, { user: { id: user.id, email: user.email, role: user.role, active: user.active } });
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/auth/logout") {
+      if (neonStore) await logout(neonStore, request, response);
+      return sendJson(response, 200, { ok: true });
+    }
+
+    const user = neonStore ? await currentUser(neonStore, request) : { id: "local-admin", email: "local@localhost", role: "admin", active: true };
+    if (request.method === "GET" && url.pathname === "/api/auth/me") {
+      if (!user?.active) throw new RequestError("Sign in required.", 401);
+      return sendJson(response, 200, { user });
+    }
+
     if (request.method === "GET" && url.pathname === "/api/health") {
       return sendJson(response, 200, {
         ok: true,
         apiKeyConfigured: Boolean(process.env.FIRECRAWL_API_KEY),
         googleMapsKeyConfigured: Boolean(process.env.GOOGLE_MAPS_API_KEY),
+        serverless: Boolean(process.env.VERCEL),
       });
+    }
+
+    if (url.pathname.startsWith("/api/") && !user?.active) throw new RequestError("Sign in required.", 401);
+
+    if (url.pathname === "/api/users" && request.method === "GET") {
+      if (user.role !== "admin") throw new RequestError("Administrator access required.", 403);
+      return sendJson(response, 200, { users: neonStore ? await neonStore.listUsers() : [user] });
+    }
+
+    if (url.pathname === "/api/users" && request.method === "POST") {
+      if (user.role !== "admin" || !neonStore) throw new RequestError("Administrator access required.", 403);
+      const body = await readBody(request);
+      const email = String(body.email || "").trim().toLowerCase();
+      const role = ["admin", "sales"].includes(body.role) ? body.role : "sales";
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new RequestError("Enter a valid email address.");
+      if (await neonStore.getUserByEmail(email)) throw new RequestError("A user with that email already exists.", 409);
+      const created = await neonStore.createUser({ email, role, passwordHash: await hashPassword(body.password) });
+      return sendJson(response, 201, { user: created });
+    }
+
+    if (url.pathname.startsWith("/api/users/") && request.method === "PATCH") {
+      if (user.role !== "admin" || !neonStore) throw new RequestError("Administrator access required.", 403);
+      const id = decodeURIComponent(url.pathname.slice("/api/users/".length));
+      const body = await readBody(request);
+      if (id === user.id && body.active === false) throw new RequestError("You cannot deactivate your own account.");
+      const changes = {};
+      if (["admin", "sales"].includes(body.role)) changes.role = body.role;
+      if (body.active !== undefined) changes.active = body.active === true;
+      if (body.password) changes.passwordHash = await hashPassword(body.password);
+      const updated = await neonStore.updateUser(id, changes);
+      if (!updated) throw new RequestError("User not found.", 404);
+      return sendJson(response, 200, { user: updated });
+    }
+
+    if (url.pathname === "/api/admin/import" && request.method === "POST") {
+      if (user.role !== "admin" || !neonStore) throw new RequestError("Administrator access required.", 403);
+      const body = await readBody(request);
+      const leads = Array.isArray(body.leads) ? body.leads : [];
+      const grouped = leads.reduce((groups, lead) => {
+        const type = String(lead.leadType || "Uncategorised");
+        if (!groups.has(type)) groups.set(type, []);
+        groups.get(type).push(lead);
+        return groups;
+      }, new Map());
+      let imported = 0; let skipped = 0; let total = 0;
+      for (const [leadType, typeLeads] of grouped) {
+        const result = await crmImport(typeLeads, leadType, { requireEmail: false });
+        imported += result.imported; skipped += result.skipped; total = result.total;
+      }
+      if (body.report?.id && body.report?.generatedAt) await saveReport(body.report);
+      return sendJson(response, 200, { imported, skipped, total });
     }
 
     if (request.method === "GET" && url.pathname === "/api/reports") {
@@ -439,25 +537,27 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/api/crm/leads") {
-      return sendJson(response, 200, { leads: await listCrmLeads(crmFile) });
+      return sendJson(response, 200, { leads: await crmListLeads() });
     }
 
     if (request.method === "GET" && url.pathname === "/api/crm/types") {
-      return sendJson(response, 200, { types: await listLeadTypes(crmTypesFile, crmFile) });
+      return sendJson(response, 200, { types: await crmListTypes() });
     }
 
     if (request.method === "POST" && url.pathname === "/api/crm/types") {
+      if (user.role !== "admin") throw new RequestError("Administrator access required.", 403);
       const requestedName = String((await readBody(request)).name || "").trim();
       if (!requestedName) throw new RequestError("Enter a lead type name.");
-      const name = await addLeadType(crmTypesFile, requestedName);
+      const name = await crmAddType(requestedName);
       return sendJson(response, 201, { name });
     }
 
     if (request.method === "PATCH" && url.pathname === "/api/crm/types") {
+      if (user.role !== "admin") throw new RequestError("Administrator access required.", 403);
       const body = await readBody(request);
       if (!String(body.oldName || "").trim() || !String(body.newName || "").trim()) throw new RequestError("Both lead type names are required.");
       try {
-        const name = await renameLeadType(crmTypesFile, crmFile, body.oldName, body.newName);
+        const name = await crmRenameType(body.oldName, body.newName);
         if (!name) throw new RequestError("Lead type not found.", 404);
         return sendJson(response, 200, { name });
       } catch (error) {
@@ -467,10 +567,11 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "DELETE" && url.pathname === "/api/crm/types") {
+      if (user.role !== "admin") throw new RequestError("Administrator access required.", 403);
       const body = await readBody(request);
       if (!String(body.name || "").trim()) throw new RequestError("Choose a lead type to delete.");
       try {
-        await deleteLeadType(crmTypesFile, crmFile, body.name);
+        await crmDeleteType(body.name);
         return sendJson(response, 200, { deleted: true });
       } catch (error) {
         if (error.code === "TYPE_IN_USE") throw new RequestError(error.message, 409);
@@ -484,15 +585,16 @@ const server = http.createServer(async (request, response) => {
       const leadType = String(body.leadType || "").trim().slice(0, 100);
       if (!/^[a-zA-Z0-9.-]+$/.test(reportId)) throw new RequestError("Invalid report ID.");
       if (!leadType) throw new RequestError("Choose a lead type before saving.");
-      const report = JSON.parse(await readFile(join(reportsRoot, `${reportId}.json`), "utf8"));
+      const report = await getReport(reportId);
+      if (!report) throw new RequestError("Report not found.", 404);
       const options = report.mode === "maps" ? { requireEmail: false, requirePhone: report.input?.phoneRequired !== false } : {};
-      return sendJson(response, 200, await importCrmLeads(crmFile, report.leads || [], leadType, crmTypesFile, options));
+      return sendJson(response, 200, await crmImport(report.leads || [], leadType, options));
     }
 
     if (request.method === "PATCH" && url.pathname.startsWith("/api/crm/leads/")) {
       const id = decodeURIComponent(url.pathname.slice("/api/crm/leads/".length));
       if (!/^[a-f0-9-]{36}$/i.test(id)) throw new RequestError("Invalid lead ID.");
-      const lead = await updateCrmLead(crmFile, id, await readBody(request));
+      const lead = await crmUpdateLead(id, await readBody(request));
       if (!lead) throw new RequestError("Lead not found.", 404);
       return sendJson(response, 200, lead);
     }
@@ -500,14 +602,15 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "DELETE" && url.pathname.startsWith("/api/crm/leads/")) {
       const id = decodeURIComponent(url.pathname.slice("/api/crm/leads/".length));
       if (!/^[a-f0-9-]{36}$/i.test(id)) throw new RequestError("Invalid lead ID.");
-      if (!await deleteCrmLead(crmFile, id)) throw new RequestError("Lead not found.", 404);
+      if (!await crmDeleteLead(id)) throw new RequestError("Lead not found.", 404);
       return sendJson(response, 200, { deleted: true });
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/api/reports/")) {
       const id = decodeURIComponent(url.pathname.slice("/api/reports/".length));
       if (!/^[a-zA-Z0-9.-]+$/.test(id)) throw new RequestError("Invalid report ID.");
-      const report = JSON.parse(await readFile(join(reportsRoot, `${id}.json`), "utf8"));
+      const report = await getReport(id);
+      if (!report) throw new RequestError("Report not found.", 404);
       return sendJson(response, 200, report);
     }
 
@@ -538,21 +641,27 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/api/research") {
+      if (user.role !== "admin") throw new RequestError("Administrator access required.", 403);
       const apiKey = String(request.headers["x-firecrawl-key"] || process.env.FIRECRAWL_API_KEY || "").trim();
       if (!apiKey) throw new RequestError("Enter your Firecrawl API key or set FIRECRAWL_API_KEY.", 401);
       const input = normalizeInput(await readBody(request));
       const job = startResearchJob(input, apiKey);
-      return sendJson(response, 202, publicJob(job));
+      if (process.env.VERCEL) await job.promise;
+      return sendJson(response, process.env.VERCEL ? 200 : 202, publicJob(job));
     }
 
     if (request.method === "POST" && url.pathname === "/api/maps/research") {
+      if (user.role !== "admin") throw new RequestError("Administrator access required.", 403);
       const apiKey = String(request.headers["x-google-maps-key"] || process.env.GOOGLE_MAPS_API_KEY || "").trim();
       if (!apiKey) throw new RequestError("Enter your Google Maps API key or set GOOGLE_MAPS_API_KEY.", 401);
       const input = normalizeMapsInput(await readBody(request));
-      return sendJson(response, 202, publicJob(startMapsJob(input, apiKey)));
+      const job = startMapsJob(input, apiKey);
+      if (process.env.VERCEL) await job.promise;
+      return sendJson(response, process.env.VERCEL ? 200 : 202, publicJob(job));
     }
 
     if (request.method !== "GET") throw new RequestError("Method not allowed.", 405);
+    if (!serveFiles) throw new RequestError("Not found.", 404);
     await serveStatic(url.pathname, response);
   } catch (error) {
     if (error.code === "ENOENT") return sendJson(response, 404, { error: "Not found." });
@@ -560,15 +669,19 @@ const server = http.createServer(async (request, response) => {
     if (status >= 500) console.error(`[${new Date().toISOString()}] ${error.name}: ${error.message}`);
     sendJson(response, status, { error: error.message || "Unexpected server error." });
   }
-});
+}
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Sales research workspace: http://127.0.0.1:${port}`);
-  console.log(`Firecrawl key from environment: ${process.env.FIRECRAWL_API_KEY ? "configured" : "not configured"}`);
-  console.log(`Google Maps key from environment: ${process.env.GOOGLE_MAPS_API_KEY ? "configured" : "not configured"}`);
-});
-
-setInterval(() => {
-  const cutoff = Date.now() - 48 * 60 * 60_000;
-  for (const [id, job] of jobs) if (job.status !== "running" && job.createdAt < cutoff) jobs.delete(id);
-}, 60 * 60_000).unref();
+const isMainModule = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+if (isMainModule) {
+  const server = http.createServer((request, response) => handleRequest(request, response));
+  server.listen(port, "127.0.0.1", () => {
+    console.log(`Sales research workspace: http://127.0.0.1:${port}`);
+    console.log(`Database: ${neonStore ? "Neon Postgres" : "local files"}`);
+    console.log(`Firecrawl key from environment: ${process.env.FIRECRAWL_API_KEY ? "configured" : "not configured"}`);
+    console.log(`Google Maps key from environment: ${process.env.GOOGLE_MAPS_API_KEY ? "configured" : "not configured"}`);
+  });
+  setInterval(() => {
+    const cutoff = Date.now() - 48 * 60 * 60_000;
+    for (const [id, job] of jobs) if (job.status !== "running" && job.createdAt < cutoff) jobs.delete(id);
+  }, 60 * 60_000).unref();
+}

@@ -6,6 +6,8 @@ let googleMapsKeyConfigured = false;
 let activeJobId = null;
 let crmLeads = [];
 let crmTypes = [];
+let signedInUser = null;
+let filteredCrmLeads = [];
 
 const escapeHtml = (value = "") => String(value).replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
 const safeUrl = (value = "") => { try { const url = new URL(value); return ["http:","https:"].includes(url.protocol) ? escapeHtml(url.href) : ""; } catch { return ""; } };
@@ -124,12 +126,14 @@ function payload() {
 }
 
 function showMain(view) {
+  $("loginView").classList.toggle("hidden", view !== "login");
   $("builderView").classList.toggle("hidden", view !== "builder");
   $("mapsView").classList.toggle("hidden", view !== "maps");
   $("loadingView").classList.toggle("hidden", view !== "loading");
   $("resultsView").classList.toggle("hidden", view !== "results");
   $("crmView").classList.toggle("hidden", view !== "crm");
-  $("historySection").classList.toggle("hidden", view === "loading" || view === "crm" || view === "maps");
+  $("usersView").classList.toggle("hidden", view !== "users");
+  $("historySection").classList.toggle("hidden", !signedInUser || view === "loading" || view === "crm" || view === "maps" || view === "users" || view === "login");
 }
 
 function updateProgress(progress = {}) {
@@ -205,7 +209,9 @@ $("researchForm").addEventListener("submit", async (event) => {
     });
     const job = await response.json();
     if (!response.ok) throw new Error(job.error || "Research could not start.");
-    await pollJob(job.id);
+    if (job.status === "completed") { renderReport(job.result); await loadHistory(); }
+    else if (job.status === "failed") throw new Error(job.error || "Research failed.");
+    else await pollJob(job.id);
   } catch (error) {
     activeJobId = null;
     $("stopResearch").classList.add("hidden");
@@ -255,7 +261,9 @@ $("mapsForm").addEventListener("submit", async (event) => {
     });
     const job = await response.json();
     if (!response.ok) throw new Error(job.error || "Google Maps research could not start.");
-    await pollJob(job.id);
+    if (job.status === "completed") { renderReport(job.result); await loadHistory(); }
+    else if (job.status === "failed") throw new Error(job.error || "Google Maps research failed.");
+    else await pollJob(job.id);
   } catch (error) {
     activeJobId = null;
     sessionStorage.removeItem("activeResearchJob");
@@ -381,7 +389,7 @@ $("saveToCrm").addEventListener("click", async () => {
 $("openCrm").addEventListener("click", async () => { await loadCrm(); showMain("crm"); });
 $("openMaps").addEventListener("click", () => { showMain("maps"); window.scrollTo({ top:0, behavior:"smooth" }); });
 $("backFromMaps").addEventListener("click", () => showMain(currentReport ? "results" : "builder"));
-$("backToResearch").addEventListener("click", () => showMain(currentReport ? "results" : "builder"));
+$("backToResearch").addEventListener("click", () => showMain(signedInUser?.role === "admin" ? (currentReport ? "results" : "builder") : "crm"));
 
 async function loadCrm() {
   const [leadsResponse, typesResponse] = await Promise.all([fetch("/api/crm/leads"), fetch("/api/crm/types")]);
@@ -403,13 +411,29 @@ function renderLeadTypes() {
 function renderCrm() {
   const type = $("crmTypeFilter").value;
   const status = $("crmStatusFilter").value;
+  const followUp = $("crmFollowUpFilter").value;
+  const sort = $("crmSort").value;
   const query = $("crmSearch").value.trim().toLowerCase();
-  const leads = crmLeads.filter((lead) => (!type || lead.leadType === type) && (!status || lead.status === status) && (!query || `${lead.name} ${lead.role || ""} ${lead.organization || ""} ${lead.email} ${lead.phone || ""} ${lead.location || ""} ${lead.comments} ${lead.feedback}`.toLowerCase().includes(query)));
+  const localNow = new Date();
+  const today = new Date(localNow.getTime() - localNow.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+  const week = new Date(localNow.getTime() - localNow.getTimezoneOffset() * 60_000 + 7 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+  const dueMatch = (lead) => !followUp
+    || (followUp === "none" && !lead.nextFollowUpAt)
+    || (followUp === "scheduled" && Boolean(lead.nextFollowUpAt))
+    || (followUp === "overdue" && lead.nextFollowUpAt && lead.nextFollowUpAt < today && !["Won", "Not interested"].includes(lead.status))
+    || (followUp === "today" && lead.nextFollowUpAt === today)
+    || (followUp === "week" && lead.nextFollowUpAt >= today && lead.nextFollowUpAt <= week);
+  const leads = crmLeads.filter((lead) => (!type || lead.leadType === type) && (!status || lead.status === status) && dueMatch(lead) && (!query || `${lead.name} ${lead.role || ""} ${lead.organization || ""} ${lead.email} ${lead.phone || ""} ${lead.location || ""} ${lead.assignedTo || ""} ${lead.comments || ""} ${lead.feedback || ""}`.toLowerCase().includes(query)));
+  leads.sort((left, right) => sort === "name" ? left.name.localeCompare(right.name) : sort === "newest" ? String(right.createdAt || "").localeCompare(String(left.createdAt || "")) : String(left.nextFollowUpAt || "9999").localeCompare(String(right.nextFollowUpAt || "9999")));
+  filteredCrmLeads = leads;
+  const overdue = crmLeads.filter((lead) => lead.nextFollowUpAt && lead.nextFollowUpAt < today && !["Won", "Not interested"].includes(lead.status)).length;
+  const dueWeek = crmLeads.filter((lead) => lead.nextFollowUpAt >= today && lead.nextFollowUpAt <= week).length;
+  $("crmSummary").innerHTML = [["Total leads",crmLeads.length,""],["New",crmLeads.filter((lead)=>lead.status==="New").length,""],["To contact",crmLeads.filter((lead)=>lead.status==="To contact").length,""],["Overdue",overdue,"alert"],["Due in 7 days",dueWeek,""]].map(([label,value,className])=>`<div class="summary-card ${className}"><strong>${value}</strong><span>${label}</span></div>`).join("");
   $("crmMeta").textContent = `${leads.length} of ${crmLeads.length} leads`;
-  $("crmTable").querySelector("tbody").innerHTML = leads.length ? leads.map((lead) => `<tr><td>${escapeHtml(lead.leadType)}</td><td><strong>${escapeHtml(lead.name)}</strong><br><small>${escapeHtml([lead.role, lead.organization, lead.location].filter(Boolean).join(" · "))}</small></td><td>${escapeHtml(lead.email)}<br><small>${escapeHtml(lead.phone || "")}</small></td><td><span class="status-chip">${escapeHtml(lead.status)}</span></td><td>${escapeHtml(lead.lastContactedAt || "—")}</td><td class="notes-cell">${escapeHtml(lead.feedback || lead.comments || "—")}</td><td><button class="button secondary edit-lead" data-id="${lead.id}" type="button">Edit</button></td></tr>`).join("") : '<tr><td colspan="7" class="not-found">No leads match these filters.</td></tr>';
+  $("crmTable").querySelector("tbody").innerHTML = leads.length ? leads.map((lead) => `<tr><td>${escapeHtml(lead.leadType)}</td><td><strong>${escapeHtml(lead.name)}</strong><br><small>${escapeHtml([lead.role, lead.organization, lead.location].filter(Boolean).join(" · "))}</small></td><td>${escapeHtml(lead.email || "—")}<br><small>${escapeHtml(lead.phone || "")}</small></td><td><span class="status-chip">${escapeHtml(lead.status)}</span><br><span class="priority-chip ${String(lead.priority || "Normal").toLowerCase()}">${escapeHtml(lead.priority || "Normal")}</span></td><td class="${lead.nextFollowUpAt && lead.nextFollowUpAt < today ? "followup-overdue" : ""}">${escapeHtml(lead.nextFollowUpAt || "—")}</td><td>${escapeHtml(lead.assignedTo || "Unassigned")}</td><td class="notes-cell">${escapeHtml(lead.feedback || lead.comments || "—")}</td><td><button class="button secondary edit-lead" data-id="${lead.id}" type="button">Edit</button></td></tr>`).join("") : '<tr><td colspan="8" class="not-found">No leads match these filters.</td></tr>';
 }
 
-[$("crmTypeFilter"), $("crmStatusFilter")].forEach((input) => input.addEventListener("change", renderCrm));
+[$("crmTypeFilter"), $("crmStatusFilter"), $("crmFollowUpFilter"), $("crmSort")].forEach((input) => input.addEventListener("change", renderCrm));
 $("crmSearch").addEventListener("input", renderCrm);
 $("leadTypeForm").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -442,16 +466,29 @@ $("crmTable").addEventListener("click", (event) => {
   const button = event.target.closest(".edit-lead"); if (!button) return;
   const lead = crmLeads.find((item) => item.id === button.dataset.id); if (!lead) return;
   $("editLeadId").value = lead.id; $("editLeadName").textContent = lead.name; setTypeSelect($("editLeadType"), lead.leadType);
-  $("editLeadStatus").value = lead.status; $("editLastContact").value = lead.lastContactedAt; $("editFeedback").value = lead.feedback; $("editComments").value = lead.comments;
+  $("editLeadStatus").value = lead.status; $("editPriority").value = lead.priority || "Normal"; $("editAssignedTo").value = lead.assignedTo || ""; $("editLastContact").value = lead.lastContactedAt; $("editNextFollowUp").value = lead.nextFollowUpAt || ""; $("editFeedback").value = lead.feedback; $("editComments").value = lead.comments;
   $("leadDialog").showModal();
 });
 $("leadForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const response = await fetch(`/api/crm/leads/${encodeURIComponent($("editLeadId").value)}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ leadType:$("editLeadType").value, status:$("editLeadStatus").value, lastContactedAt:$("editLastContact").value, feedback:$("editFeedback").value, comments:$("editComments").value }) });
+  const response = await fetch(`/api/crm/leads/${encodeURIComponent($("editLeadId").value)}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ leadType:$("editLeadType").value, status:$("editLeadStatus").value, priority:$("editPriority").value, assignedTo:$("editAssignedTo").value, lastContactedAt:$("editLastContact").value, nextFollowUpAt:$("editNextFollowUp").value, feedback:$("editFeedback").value, comments:$("editComments").value }) });
   if (!response.ok) return alert("Could not update this lead.");
   $("leadDialog").close(); await loadCrm();
 });
 document.querySelectorAll(".close-dialog").forEach((button) => button.addEventListener("click", () => $("leadDialog").close()));
+$("deleteLead").addEventListener("click", async () => {
+  if (!confirm("Permanently delete this lead?")) return;
+  const response = await fetch(`/api/crm/leads/${encodeURIComponent($("editLeadId").value)}`, { method:"DELETE" });
+  if (!response.ok) return alert("Could not delete this lead.");
+  $("leadDialog").close(); await loadCrm();
+});
+
+$("exportCrm").addEventListener("click", () => {
+  const quote = (value="") => `"${String(value).replaceAll('"','""')}"`;
+  const fields = ["leadType","name","email","phone","status","priority","assignedTo","nextFollowUpAt","lastContactedAt","location","website","feedback","comments"];
+  const csv = [fields, ...filteredCrmLeads.map((lead) => fields.map((field) => lead[field] || ""))].map((row) => row.map(quote).join(",")).join("\r\n");
+  download("crm-leads.csv", csv, "text/csv");
+});
 
 async function loadHistory() {
   try {
@@ -490,9 +527,6 @@ $("exportMarkdown").addEventListener("click", () => {
   download(`${slug()}-brief.md`,lines.join("\n"),"text/markdown");
 });
 
-fetch("/api/health").then((response)=>response.json()).then((health)=>{ apiKeyConfigured=health.apiKeyConfigured; googleMapsKeyConfigured=health.googleMapsKeyConfigured; $("keyStatus").textContent=health.apiKeyConfigured?"Firecrawl configured":"Firecrawl key entered at final step"; document.querySelector(".api-status i").classList.toggle("ready",health.apiKeyConfigured); $("apiKeyField").classList.toggle("hidden",health.apiKeyConfigured); $("mapsApiKeyField").classList.toggle("hidden",health.googleMapsKeyConfigured); }).catch(()=>{$("keyStatus").textContent="Local server unavailable";});
-loadHistory();
-syncModeUi();
 async function resumeActiveJob() {
   let activeJob = sessionStorage.getItem("activeResearchJob");
   if (!activeJob) {
@@ -512,4 +546,89 @@ async function resumeActiveJob() {
     loadHistory();
   });
 }
-resumeActiveJob();
+
+function applyUser(user) {
+  signedInUser = user;
+  const admin = user?.role === "admin";
+  document.querySelectorAll(".admin-only").forEach((element) => element.classList.toggle("hidden", !admin));
+  $("logoutButton").classList.toggle("hidden", !user);
+  $("backToResearch").textContent = admin ? "Back to research" : "Back to CRM";
+}
+
+$("loginForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("loginError").classList.add("hidden");
+  const response = await fetch("/api/auth/login", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ email:$("loginEmail").value, password:$("loginPassword").value }) });
+  const payload = await response.json();
+  if (!response.ok) { $("loginError").textContent = payload.error || "Sign in failed."; $("loginError").classList.remove("hidden"); return; }
+  $("loginPassword").value = "";
+  applyUser(payload.user);
+  await initializeWorkspace();
+});
+
+$("logoutButton").addEventListener("click", async () => {
+  await fetch("/api/auth/logout", { method:"POST" });
+  signedInUser = null; currentReport = null; crmLeads = []; crmTypes = [];
+  applyUser(null); showMain("login");
+});
+
+async function loadUsers() {
+  const response = await fetch("/api/users");
+  if (!response.ok) return;
+  const { users } = await response.json();
+  $("usersMeta").textContent = `${users.length} users`;
+  $("usersTable").querySelector("tbody").innerHTML = users.map((user) => `<tr><td>${escapeHtml(user.email)}</td><td><select class="user-role" data-id="${user.id}"><option value="sales" ${user.role === "sales" ? "selected" : ""}>Sales</option><option value="admin" ${user.role === "admin" ? "selected" : ""}>Admin</option></select></td><td><span class="status-chip">${user.active ? "Active" : "Disabled"}</span></td><td>${escapeHtml(user.createdAt ? new Date(user.createdAt).toLocaleDateString() : "—")}</td><td><div class="type-actions"><button class="button secondary toggle-user" data-id="${user.id}" data-active="${user.active}" type="button">${user.active ? "Disable" : "Enable"}</button><button class="button secondary reset-user" data-id="${user.id}" type="button">Reset password</button></div></td></tr>`).join("");
+}
+
+$("openUsers").addEventListener("click", async () => { await loadUsers(); showMain("users"); });
+$("backFromUsers").addEventListener("click", () => showMain("builder"));
+$("userForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const response = await fetch("/api/users", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ email:$("newUserEmail").value, password:$("newUserPassword").value, role:$("newUserRole").value }) });
+  const payload = await response.json();
+  if (!response.ok) return alert(payload.error || "Could not add this user.");
+  $("userForm").reset(); await loadUsers();
+});
+$("usersTable").addEventListener("change", async (event) => {
+  if (!event.target.classList.contains("user-role")) return;
+  const response = await fetch(`/api/users/${event.target.dataset.id}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ role:event.target.value }) });
+  if (!response.ok) alert("Could not change this role.");
+  await loadUsers();
+});
+$("usersTable").addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-id]"); if (!button) return;
+  let changes;
+  if (button.classList.contains("toggle-user")) changes = { active:button.dataset.active !== "true" };
+  else { const password = prompt("Enter a new password (at least 10 characters):"); if (!password) return; changes = { password }; }
+  const response = await fetch(`/api/users/${button.dataset.id}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(changes) });
+  const payload = await response.json();
+  if (!response.ok) return alert(payload.error || "Could not update this user.");
+  await loadUsers();
+});
+
+async function initializeWorkspace() {
+  const healthResponse = await fetch("/api/health");
+  if (healthResponse.ok) {
+    const health = await healthResponse.json();
+    apiKeyConfigured = health.apiKeyConfigured; googleMapsKeyConfigured = health.googleMapsKeyConfigured;
+    $("keyStatus").textContent = health.apiKeyConfigured ? "Firecrawl configured" : "Firecrawl key entered at final step";
+    document.querySelector(".api-status i").classList.toggle("ready", health.apiKeyConfigured);
+    $("apiKeyField").classList.toggle("hidden", health.apiKeyConfigured); $("mapsApiKeyField").classList.toggle("hidden", health.googleMapsKeyConfigured);
+    if (health.serverless) { $("unlimited").checked = false; $("unlimitedOption").classList.add("hidden"); syncUnlimitedUi(); }
+  }
+  syncModeUi();
+  await loadHistory();
+  if (signedInUser.role === "admin") { showMain("builder"); await resumeActiveJob(); }
+  else { await loadCrm(); showMain("crm"); }
+}
+
+async function initializeAuth() {
+  try {
+    const response = await fetch("/api/auth/me");
+    if (!response.ok) throw new Error();
+    applyUser((await response.json()).user);
+    await initializeWorkspace();
+  } catch { applyUser(null); showMain("login"); }
+}
+
+initializeAuth();

@@ -17,6 +17,8 @@ A local Node.js application that uses Firecrawl API v2 for web research and Goog
 - Saves selected email-qualified leads into a local CRM table with lead type, status, feedback, comments and last-contact date.
 - Maintains a reusable lead-type list, including add, rename and safe delete controls, so different markets stay separate.
 - Searches Google Places by business category across multiple towns and checkpoints phone-qualified listings into the CRM after every results page.
+- Uses Neon Postgres when `DATABASE_URL` is configured, with secure login, admin/sales roles and administrator-managed users.
+- Tracks lead priority, owner, next follow-up date, overdue work and filtered CRM exports.
 
 ## Run locally
 
@@ -34,6 +36,12 @@ On Windows, double-click the **Prospect Intelligence Desk** desktop shortcut. It
 `npm start` automatically loads a local `.env` file when present. You can alternatively omit `.env` and enter the key in the browser; a key entered there is sent only to the local server for that request and is not saved in report files or browser storage.
 
 For Google Maps business search, enable **Places API (New)** and billing in Google Cloud, then add `GOOGLE_MAPS_API_KEY=...` to `.env` or enter the key on the Google Maps Leads screen.
+
+## Vercel and Neon
+
+Connect a Neon Marketplace database to the Vercel project so `DATABASE_URL` is injected at runtime. Set `FIRECRAWL_API_KEY`, optional `GOOGLE_MAPS_API_KEY`, `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` as sensitive Production variables before the first login. The bootstrap credentials create the first administrator only while the user table is empty.
+
+To migrate local CRM data after deployment, run `scripts/seed-neon.mjs` with `APP_URL` set to the production URL. The script signs in as the administrator and uploads ignored local CRM data in small batches; credentials and lead data are never committed.
 
 ## Research modes and cost control
 
