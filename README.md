@@ -37,7 +37,7 @@ On Windows, double-click the **Prospect Intelligence Desk** desktop shortcut. It
 
 For Google Maps business search, enable **Places API (New)** and billing in Google Cloud, then add `GOOGLE_MAPS_API_KEY=...` to `.env` or enter the key on the Google Maps Leads screen.
 
-For the resumable nationwide coffee-shop and salon run, use `npm run crm:session` once and then `npm run leads:google:nationwide`. It checkpoints every area in `data/logs/`, writes each results page directly to Neon, and resumes unfinished areas after a restart. The runner keeps only public numbers matching South African mobile-number patterns; it does not verify that a listed number belongs to the owner.
+For the resumable nationwide coffee-shop, salon and photographer run, use `npm run crm:session` once and then `npm run leads:google:nationwide`. It checkpoints every area in `data/logs/`, writes each results page directly to Neon, and resumes unfinished areas after a restart. The runner keeps only public numbers matching South African mobile-number patterns; it does not verify that a listed number belongs to the owner.
 
 ## Vercel and Neon
 

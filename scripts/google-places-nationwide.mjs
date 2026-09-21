@@ -13,6 +13,7 @@ const pageDelayMs = Math.max(250, Number(process.env.GOOGLE_PLACES_DELAY_MS) || 
 const searches = [
   { oldType: "Coffee Shops - Gauteng Mobile", leadType: "Coffee Shops - South Africa Mobile", query: "coffee shops" },
   { oldType: "Salons - Gauteng Mobile", leadType: "Salons - South Africa Mobile", query: "hair and beauty salons" },
+  { oldType: "", leadType: "Photographers - South Africa Mobile", query: "professional photographers" },
 ];
 
 const locations = [...new Set(`
@@ -138,6 +139,8 @@ for (const search of searches) {
 const apiKey = await findGoogleKey();
 const client = new GooglePlacesClient(apiKey);
 const total = searches.length * locations.length;
+if (completed.size < total) delete state.completedAt;
+state.importedByType ||= {};
 await log(`Nationwide Google Places run ready: ${locations.length} areas, ${searches.length} lead types, up to ${total * 3} API requests.`);
 
 for (const search of searches) {
@@ -158,6 +161,7 @@ for (const search of searches) {
           querySkipped += imported.skipped;
           state.imported += imported.imported;
           state.skipped += imported.skipped;
+          state.importedByType[search.leadType] = (state.importedByType[search.leadType] || 0) + imported.imported;
         }
         await sleep(pageDelayMs);
       });
