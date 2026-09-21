@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { GOOGLE_PLACES_FIELD_MASK, GooglePlacesClient, placeToLead } from "../lib/google-places.mjs";
+import { GOOGLE_PLACES_FIELD_MASK, GooglePlacesClient, isLikelySouthAfricanMobileNumber, placeToLead } from "../lib/google-places.mjs";
 
 test("Google Places text search requests phone fields and follows pagination", async () => {
   const calls = [];
@@ -37,4 +37,11 @@ test("Google place converts to a phone-qualified CRM lead", () => {
   assert.equal(lead.phone, "+27 21 555 0101");
   assert.equal(lead.source, "Google Places");
   assert.equal(lead.latitude, -33.9);
+});
+
+test("South African mobile filter excludes Gauteng landlines and service numbers", () => {
+  assert.equal(isLikelySouthAfricanMobileNumber("+27 82 555 0101"), true);
+  assert.equal(isLikelySouthAfricanMobileNumber("071 555 0101"), true);
+  assert.equal(isLikelySouthAfricanMobileNumber("011 555 0101"), false);
+  assert.equal(isLikelySouthAfricanMobileNumber("087 555 0101"), false);
 });

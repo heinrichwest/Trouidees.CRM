@@ -257,6 +257,7 @@ $("mapsForm").addEventListener("submit", async (event) => {
         maxResults: Number($("mapsMaxResults").value),
         maxPagesPerLocation: Number($("mapsPages").value),
         phoneRequired: $("mapsPhoneRequired").checked,
+        mobileOnly: $("mapsMobileOnly").checked,
       }),
     });
     const job = await response.json();

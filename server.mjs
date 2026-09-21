@@ -6,7 +6,7 @@ import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FirecrawlClient, FirecrawlError } from "./lib/firecrawl.mjs";
 import { buildDiscoveryReport, buildReport } from "./lib/analyze.mjs";
-import { GooglePlacesClient, placeToLead } from "./lib/google-places.mjs";
+import { GooglePlacesClient, isLikelySouthAfricanMobileNumber, placeToLead } from "./lib/google-places.mjs";
 import { createLoginSession, currentUser, hashPassword, logout, verifyPassword } from "./lib/auth.mjs";
 import { NeonStore } from "./lib/neon-store.mjs";
 import { addLeadType, deleteCrmLead, deleteLeadType, importCrmLeads, listCrmLeads, listLeadTypes, renameLeadType, updateCrmLead } from "./lib/crm.mjs";
@@ -143,6 +143,7 @@ function normalizeMapsInput(body) {
     maxResults: Math.max(1, Math.min(5_000, Number(body.maxResults) || 500)),
     maxPagesPerLocation: Math.max(1, Math.min(3, Number(body.maxPagesPerLocation) || 3)),
     phoneRequired: body.phoneRequired !== false,
+    mobileOnly: body.mobileOnly === true,
   };
 }
 
@@ -166,7 +167,9 @@ function buildMapsReport(input, leads, usage, generatedAt, warnings = []) {
     ],
     usage: { googleRequests: usage.requests, placesFound: usage.placesFound, locationsSearched: usage.locationsSearched },
     warnings: [
-      "Google Places provides public business listing details, not a verified owner name or a guarantee that a listed number is a mobile number.",
+      input.mobileOnly
+        ? "Numbers were limited to South African mobile-number patterns, but Google Places does not verify that a number belongs directly to the owner."
+        : "Google Places provides public business listing details, not a verified owner name or a guarantee that a listed number is a mobile number.",
       ...warnings,
     ],
     nextSteps: ["Verify the business and contact details before outreach.", "Record outreach status and feedback in the Lead CRM."],
@@ -343,7 +346,7 @@ function startMapsJob(input, apiKey) {
         for (const place of pagePlaces) {
           const lead = placeToLead(place, location);
           const key = lead.placeId || `${lead.name.toLowerCase()}|${lead.location.toLowerCase()}`;
-          if (seen.has(key) || (input.phoneRequired && !lead.phone) || leads.length >= input.maxResults) continue;
+          if (seen.has(key) || (input.phoneRequired && !lead.phone) || (input.mobileOnly && !isLikelySouthAfricanMobileNumber(lead.phone)) || leads.length >= input.maxResults) continue;
           seen.add(key);
           leads.push(lead);
           newLeads.push(lead);
