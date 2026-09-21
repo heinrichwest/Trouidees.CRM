@@ -35,7 +35,7 @@ On Windows, double-click the **Prospect Intelligence Desk** desktop shortcut. It
 
 `npm start` automatically loads a local `.env` file when present. You can alternatively omit `.env` and enter the key in the browser; a key entered there is sent only to the local server for that request and is not saved in report files or browser storage.
 
-For Google Maps business search, enable **Places API (New)** and billing in Google Cloud, then add `GOOGLE_MAPS_API_KEY=...` to `.env` or enter the key on the Google Maps Leads screen.
+For Google Maps business search, enable **Places API (New)** and billing in Google Cloud, then add `GOOGLE_MAPS_API_KEY=...` to `.env` or enter the key on the Google Maps Leads screen. The CRM Lead Map also requires **Maps JavaScript API** and `GOOGLE_MAPS_BROWSER_API_KEY`; use a separate browser key restricted to your production domain.
 
 For the resumable nationwide coffee-shop, salon and photographer run, use `npm run crm:session` once and then `npm run leads:google:nationwide`. It checkpoints every area in `data/logs/`, writes each results page directly to Neon, and resumes unfinished areas after a restart. The runner keeps only public numbers matching South African mobile-number patterns; it does not verify that a listed number belongs to the owner.
 

@@ -9,6 +9,11 @@ let crmTypes = [];
 let signedInUser = null;
 let filteredCrmLeads = [];
 let crmPage = 1;
+let leadMapLeads = [];
+let leadMap = null;
+let leadMapInfoWindow = null;
+let leadMapMarkers = [];
+let googleMapsPromise = null;
 const crmPageSize = 100;
 
 const escapeHtml = (value = "") => String(value).replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
@@ -134,8 +139,9 @@ function showMain(view) {
   $("loadingView").classList.toggle("hidden", view !== "loading");
   $("resultsView").classList.toggle("hidden", view !== "results");
   $("crmView").classList.toggle("hidden", view !== "crm");
+  $("leadMapView").classList.toggle("hidden", view !== "leadMap");
   $("usersView").classList.toggle("hidden", view !== "users");
-  $("historySection").classList.toggle("hidden", !signedInUser || view === "loading" || view === "crm" || view === "maps" || view === "users" || view === "login");
+  $("historySection").classList.toggle("hidden", !signedInUser || view === "loading" || view === "crm" || view === "leadMap" || view === "maps" || view === "users" || view === "login");
 }
 
 function updateProgress(progress = {}) {
@@ -388,6 +394,168 @@ $("saveToCrm").addEventListener("click", async () => {
     : `${result.skipped} already saved in CRM`;
   await loadCrm();
 });
+
+function showLeadMapError(message) {
+  $("leadMapError").textContent = message;
+  $("leadMapError").classList.toggle("hidden", !message);
+}
+
+function filteredLeadMapLeads() {
+  const type = $("leadMapTypeFilter").value;
+  const status = $("leadMapStatusFilter").value;
+  const query = $("leadMapSearch").value.trim().toLowerCase();
+  return leadMapLeads.filter((lead) => (!type || lead.leadType === type)
+    && (!status || lead.status === status)
+    && (!query || `${lead.name || ""} ${lead.location || ""} ${lead.phone || ""} ${lead.email || ""}`.toLowerCase().includes(query)));
+}
+
+function loadGoogleMaps() {
+  if (window.google?.maps?.importLibrary) return Promise.resolve(window.google.maps);
+  if (googleMapsPromise) return googleMapsPromise;
+  googleMapsPromise = fetch("/api/maps/browser-config").then(async (response) => {
+    const config = await response.json();
+    if (!response.ok || !config.apiKey) throw new Error("Lead Map needs a browser-restricted Google Maps key. Add GOOGLE_MAPS_BROWSER_API_KEY in Vercel.");
+    return new Promise((resolve, reject) => {
+      const callback = `initLeadMap_${Date.now()}`;
+      const script = document.createElement("script");
+      const timeout = window.setTimeout(() => reject(new Error("Google Maps took too long to load.")), 20_000);
+      window[callback] = () => {
+        window.clearTimeout(timeout);
+        delete window[callback];
+        resolve(window.google.maps);
+      };
+      window.gm_authFailure = () => showLeadMapError("Google Maps could not authenticate. Enable Maps JavaScript API and restrict the browser key to this website.");
+      script.async = true;
+      script.onerror = () => {
+        window.clearTimeout(timeout);
+        reject(new Error("Google Maps could not load."));
+      };
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(config.apiKey)}&callback=${callback}&loading=async&v=weekly`;
+      document.head.append(script);
+    });
+  }).catch((error) => {
+    googleMapsPromise = null;
+    throw error;
+  });
+  return googleMapsPromise;
+}
+
+function worldPixel(latitude, longitude, zoom) {
+  const size = 256 * (2 ** zoom);
+  const sine = Math.max(-0.9999, Math.min(0.9999, Math.sin(latitude * Math.PI / 180)));
+  return { x:(longitude + 180) / 360 * size, y:(0.5 - Math.log((1 + sine) / (1 - sine)) / (4 * Math.PI)) * size };
+}
+
+function leadMapClusters(leads) {
+  const zoom = leadMap.getZoom() || 5;
+  const bounds = leadMap.getBounds();
+  const cellSize = zoom >= 15 ? 28 : 64;
+  const groups = new Map();
+  for (const lead of leads) {
+    const position = { lat:Number(lead.latitude), lng:Number(lead.longitude) };
+    if (bounds && !bounds.contains(position)) continue;
+    const pixel = worldPixel(position.lat, position.lng, zoom);
+    const key = `${Math.floor(pixel.x / cellSize)}:${Math.floor(pixel.y / cellSize)}`;
+    const group = groups.get(key) || { latitude:0, longitude:0, leads:[] };
+    group.latitude += position.lat;
+    group.longitude += position.lng;
+    group.leads.push(lead);
+    groups.set(key, group);
+  }
+  return [...groups.values()].map((group) => ({
+    leads:group.leads,
+    position:{ lat:group.latitude / group.leads.length, lng:group.longitude / group.leads.length },
+  }));
+}
+
+function leadMapInfo(cluster) {
+  const items = cluster.leads.slice(0, 8).map((lead) => {
+    const mapsUrl = safeUrl(lead.googleMapsUrl);
+    return `<div class="map-info-item"><h3>${escapeHtml(lead.name)}</h3><p>${escapeHtml(lead.leadType)} · ${escapeHtml(lead.status || "New")}</p><p>${escapeHtml(lead.location || "Location not supplied")}</p>${lead.phone ? `<p><a href="tel:${escapeHtml(lead.phone.replace(/[^+\d]/g, ""))}">${escapeHtml(lead.phone)}</a></p>` : ""}${mapsUrl ? `<a href="${mapsUrl}" target="_blank" rel="noopener">Open in Google Maps</a>` : ""}</div>`;
+  }).join("");
+  const more = cluster.leads.length > 8 ? `<p class="map-info-more">+${cluster.leads.length - 8} more leads in this cluster</p>` : "";
+  return `<div class="map-info"><div class="map-info-list">${items}</div>${more}</div>`;
+}
+
+function renderLeadMapMarkers() {
+  if (!leadMap || !window.google?.maps) return;
+  leadMapMarkers.forEach((marker) => marker.setMap(null));
+  leadMapMarkers = [];
+  const clusters = leadMapClusters(filteredLeadMapLeads());
+  for (const cluster of clusters) {
+    const count = cluster.leads.length;
+    const marker = new google.maps.Marker({
+      map:leadMap,
+      position:cluster.position,
+      title:count === 1 ? cluster.leads[0].name : `${count} leads`,
+      label:count > 1 ? { text:String(count), color:"#ffffff", fontSize:"11px", fontWeight:"700" } : undefined,
+      icon:{ path:google.maps.SymbolPath.CIRCLE, scale:Math.min(24, count === 1 ? 7 : 10 + Math.log2(count) * 2), fillColor:"#0d6849", fillOpacity:.92, strokeColor:"#ffffff", strokeWeight:2 },
+    });
+    marker.addListener("click", () => {
+      if (count > 1 && (leadMap.getZoom() || 5) < 15) {
+        const bounds = new google.maps.LatLngBounds();
+        cluster.leads.forEach((lead) => bounds.extend({ lat:Number(lead.latitude), lng:Number(lead.longitude) }));
+        leadMap.fitBounds(bounds, 55);
+      } else {
+        leadMapInfoWindow.setContent(leadMapInfo(cluster));
+        leadMapInfoWindow.open({ map:leadMap, anchor:marker });
+      }
+    });
+    leadMapMarkers.push(marker);
+  }
+  $("leadMapCanvas").dataset.markerCount = String(clusters.length);
+}
+
+function updateLeadMapMeta() {
+  const leads = filteredLeadMapLeads();
+  $("leadMapCount").textContent = leads.length.toLocaleString();
+  $("leadMapMeta").textContent = `${leads.length.toLocaleString()} of ${leadMapLeads.length.toLocaleString()} leads have saved Google coordinates`;
+  return leads;
+}
+
+function fitLeadMapToResults() {
+  const leads = updateLeadMapMeta();
+  if (!leadMap || !leads.length) return renderLeadMapMarkers();
+  if (leads.length === 1) {
+    leadMap.setCenter({ lat:Number(leads[0].latitude), lng:Number(leads[0].longitude) });
+    leadMap.setZoom(14);
+    return;
+  }
+  const bounds = new google.maps.LatLngBounds();
+  leads.forEach((lead) => bounds.extend({ lat:Number(lead.latitude), lng:Number(lead.longitude) }));
+  leadMap.fitBounds(bounds, 45);
+}
+
+async function loadLeadMap() {
+  showLeadMapError("");
+  $("leadMapMeta").textContent = "Loading saved Google coordinates…";
+  const [leadsResponse, typesResponse] = await Promise.all([fetch("/api/crm/map-leads"), fetch("/api/crm/types")]);
+  if (!leadsResponse.ok || !typesResponse.ok) throw new Error("Could not load mapped CRM leads.");
+  leadMapLeads = (await leadsResponse.json()).leads || [];
+  crmTypes = (await typesResponse.json()).types || crmTypes;
+  setTypeSelect($("leadMapTypeFilter"), $("leadMapTypeFilter").value, true);
+  updateLeadMapMeta();
+  await loadGoogleMaps();
+  const { Map:GoogleMap, InfoWindow } = await google.maps.importLibrary("maps");
+  if (!leadMap) {
+    leadMap = new GoogleMap($("leadMapCanvas"), { center:{ lat:-30.5595, lng:22.9375 }, zoom:5, mapTypeControl:false, streetViewControl:false, fullscreenControl:true });
+    leadMapInfoWindow = new InfoWindow();
+    leadMap.addListener("idle", renderLeadMapMarkers);
+  }
+  fitLeadMapToResults();
+}
+
+$("openLeadMap").addEventListener("click", async () => {
+  showMain("leadMap");
+  $("openLeadMap").disabled = true;
+  try { await loadLeadMap(); }
+  catch (error) { showLeadMapError(error.message); }
+  finally { $("openLeadMap").disabled = false; }
+});
+$("backFromLeadMap").addEventListener("click", () => showMain("crm"));
+[$("leadMapTypeFilter"), $("leadMapStatusFilter")].forEach((input) => input.addEventListener("change", fitLeadMapToResults));
+$("leadMapSearch").addEventListener("input", fitLeadMapToResults);
+$("fitLeadMap").addEventListener("click", fitLeadMapToResults);
 
 $("openCrm").addEventListener("click", async () => {
   showMain("crm");

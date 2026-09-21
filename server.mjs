@@ -21,6 +21,9 @@ const jobs = new Map();
 const neonStore = process.env.DATABASE_URL ? new NeonStore(process.env.DATABASE_URL) : null;
 
 const crmListLeads = () => neonStore ? neonStore.listLeads() : listCrmLeads(crmFile);
+const crmListMapLeads = async () => neonStore
+  ? neonStore.listMapLeads()
+  : (await listCrmLeads(crmFile)).filter((lead) => Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude));
 const crmListTypes = () => neonStore ? neonStore.listTypes() : listLeadTypes(crmTypesFile, crmFile);
 const crmAddType = (name) => neonStore ? neonStore.addType(name) : addLeadType(crmTypesFile, name);
 const crmRenameType = (oldName, newName) => neonStore ? neonStore.renameType(oldName, newName) : renameLeadType(crmTypesFile, crmFile, oldName, newName);
@@ -441,7 +444,7 @@ async function serveStatic(pathname, response) {
     "Content-Type": mimeTypes[extname(filePath)] || "application/octet-stream",
     "Cache-Control": "no-cache",
     "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+    "Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' https://maps.googleapis.com https://maps.gstatic.com; img-src 'self' data: blob: https://*.googleapis.com https://*.gstatic.com https://*.google.com https://*.ggpht.com; connect-src 'self' https://maps.googleapis.com https://maps.gstatic.com; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
   });
   response.end(content);
 }
@@ -480,11 +483,16 @@ export async function handleRequest(request, response, { serveFiles = true } = {
         ok: true,
         apiKeyConfigured: Boolean(process.env.FIRECRAWL_API_KEY),
         googleMapsKeyConfigured: Boolean(process.env.GOOGLE_MAPS_API_KEY),
+        googleMapsBrowserKeyConfigured: Boolean(process.env.GOOGLE_MAPS_BROWSER_API_KEY),
         serverless: Boolean(process.env.VERCEL),
       });
     }
 
     if (url.pathname.startsWith("/api/") && !user?.active) throw new RequestError("Sign in required.", 401);
+
+    if (request.method === "GET" && url.pathname === "/api/maps/browser-config") {
+      return sendJson(response, 200, { apiKey: String(process.env.GOOGLE_MAPS_BROWSER_API_KEY || "") });
+    }
 
     if (url.pathname === "/api/users" && request.method === "GET") {
       if (user.role !== "admin") throw new RequestError("Administrator access required.", 403);
@@ -541,6 +549,10 @@ export async function handleRequest(request, response, { serveFiles = true } = {
 
     if (request.method === "GET" && url.pathname === "/api/crm/leads") {
       return sendJson(response, 200, { leads: await crmListLeads() });
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/crm/map-leads") {
+      return sendJson(response, 200, { leads: await crmListMapLeads() });
     }
 
     if (request.method === "GET" && url.pathname === "/api/crm/types") {
