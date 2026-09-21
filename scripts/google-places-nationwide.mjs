@@ -88,13 +88,25 @@ class RemoteStore {
   }
 
   async request(path, options = {}) {
-    const response = await fetch(`${appUrl}${path}`, {
-      ...options,
-      headers: { "Content-Type": "application/json", Cookie: this.cookie, ...(options.headers || {}) },
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw Object.assign(new Error(payload.error || `CRM request failed with status ${response.status}.`), { status: response.status });
-    return payload;
+    let lastError;
+    for (let attempt = 1; attempt <= 6; attempt += 1) {
+      try {
+        const response = await fetch(`${appUrl}${path}`, {
+          ...options,
+          headers: { "Content-Type": "application/json", Cookie: this.cookie, ...(options.headers || {}) },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return payload;
+        const error = Object.assign(new Error(payload.error || `CRM request failed with status ${response.status}.`), { status: response.status });
+        if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 6) throw error;
+        lastError = error;
+      } catch (error) {
+        lastError = error;
+        if (error.status || attempt === 6) throw error;
+      }
+      await sleep(attempt * 2_000);
+    }
+    throw lastError;
   }
 
   async ensureSchema() {}
