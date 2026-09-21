@@ -8,6 +8,8 @@ let crmLeads = [];
 let crmTypes = [];
 let signedInUser = null;
 let filteredCrmLeads = [];
+let crmPage = 1;
+const crmPageSize = 100;
 
 const escapeHtml = (value = "") => String(value).replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
 const safeUrl = (value = "") => { try { const url = new URL(value); return ["http:","https:"].includes(url.protocol) ? escapeHtml(url.href) : ""; } catch { return ""; } };
@@ -387,7 +389,15 @@ $("saveToCrm").addEventListener("click", async () => {
   await loadCrm();
 });
 
-$("openCrm").addEventListener("click", async () => { await loadCrm(); showMain("crm"); });
+$("openCrm").addEventListener("click", async () => {
+  showMain("crm");
+  $("crmMeta").textContent = "Loading leads…";
+  $("crmTable").querySelector("tbody").innerHTML = '<tr><td colspan="8" class="muted">Loading CRM leads from Neon…</td></tr>';
+  $("openCrm").disabled = true;
+  try { await loadCrm(); }
+  catch (error) { $("crmMeta").textContent = "Could not load leads"; alert(error.message); }
+  finally { $("openCrm").disabled = false; }
+});
 $("openMaps").addEventListener("click", () => { showMain("maps"); window.scrollTo({ top:0, behavior:"smooth" }); });
 $("backFromMaps").addEventListener("click", () => showMain(currentReport ? "results" : "builder"));
 $("backToResearch").addEventListener("click", () => showMain(signedInUser?.role === "admin" ? (currentReport ? "results" : "builder") : "crm"));
@@ -427,15 +437,23 @@ function renderCrm() {
   const leads = crmLeads.filter((lead) => (!type || lead.leadType === type) && (!status || lead.status === status) && dueMatch(lead) && (!query || `${lead.name} ${lead.role || ""} ${lead.organization || ""} ${lead.email} ${lead.phone || ""} ${lead.location || ""} ${lead.assignedTo || ""} ${lead.comments || ""} ${lead.feedback || ""}`.toLowerCase().includes(query)));
   leads.sort((left, right) => sort === "name" ? left.name.localeCompare(right.name) : sort === "newest" ? String(right.createdAt || "").localeCompare(String(left.createdAt || "")) : String(left.nextFollowUpAt || "9999").localeCompare(String(right.nextFollowUpAt || "9999")));
   filteredCrmLeads = leads;
+  const pageCount = Math.max(1, Math.ceil(leads.length / crmPageSize));
+  crmPage = Math.min(crmPage, pageCount);
+  const visibleLeads = leads.slice((crmPage - 1) * crmPageSize, crmPage * crmPageSize);
   const overdue = crmLeads.filter((lead) => lead.nextFollowUpAt && lead.nextFollowUpAt < today && !["Won", "Not interested"].includes(lead.status)).length;
   const dueWeek = crmLeads.filter((lead) => lead.nextFollowUpAt >= today && lead.nextFollowUpAt <= week).length;
   $("crmSummary").innerHTML = [["Total leads",crmLeads.length,""],["New",crmLeads.filter((lead)=>lead.status==="New").length,""],["To contact",crmLeads.filter((lead)=>lead.status==="To contact").length,""],["Overdue",overdue,"alert"],["Due in 7 days",dueWeek,""]].map(([label,value,className])=>`<div class="summary-card ${className}"><strong>${value}</strong><span>${label}</span></div>`).join("");
   $("crmMeta").textContent = `${leads.length} of ${crmLeads.length} leads`;
-  $("crmTable").querySelector("tbody").innerHTML = leads.length ? leads.map((lead) => `<tr><td>${escapeHtml(lead.leadType)}</td><td><strong>${escapeHtml(lead.name)}</strong><br><small>${escapeHtml([lead.role, lead.organization, lead.location].filter(Boolean).join(" · "))}</small></td><td>${escapeHtml(lead.email || "—")}<br><small>${escapeHtml(lead.phone || "")}</small></td><td><span class="status-chip">${escapeHtml(lead.status)}</span><br><span class="priority-chip ${String(lead.priority || "Normal").toLowerCase()}">${escapeHtml(lead.priority || "Normal")}</span></td><td class="${lead.nextFollowUpAt && lead.nextFollowUpAt < today ? "followup-overdue" : ""}">${escapeHtml(lead.nextFollowUpAt || "—")}</td><td>${escapeHtml(lead.assignedTo || "Unassigned")}</td><td class="notes-cell">${escapeHtml(lead.feedback || lead.comments || "—")}</td><td><button class="button secondary edit-lead" data-id="${lead.id}" type="button">Edit</button></td></tr>`).join("") : '<tr><td colspan="8" class="not-found">No leads match these filters.</td></tr>';
+  $("crmPageMeta").textContent = `Page ${crmPage} of ${pageCount}`;
+  $("crmPrevious").disabled = crmPage <= 1; $("crmNext").disabled = crmPage >= pageCount;
+  $("crmPagination").classList.toggle("hidden", leads.length <= crmPageSize);
+  $("crmTable").querySelector("tbody").innerHTML = visibleLeads.length ? visibleLeads.map((lead) => `<tr><td>${escapeHtml(lead.leadType)}</td><td><strong>${escapeHtml(lead.name)}</strong><br><small>${escapeHtml([lead.role, lead.organization, lead.location].filter(Boolean).join(" · "))}</small></td><td>${escapeHtml(lead.email || "—")}<br><small>${escapeHtml(lead.phone || "")}</small></td><td><span class="status-chip">${escapeHtml(lead.status)}</span><br><span class="priority-chip ${String(lead.priority || "Normal").toLowerCase()}">${escapeHtml(lead.priority || "Normal")}</span></td><td class="${lead.nextFollowUpAt && lead.nextFollowUpAt < today ? "followup-overdue" : ""}">${escapeHtml(lead.nextFollowUpAt || "—")}</td><td>${escapeHtml(lead.assignedTo || "Unassigned")}</td><td class="notes-cell">${escapeHtml(lead.feedback || lead.comments || "—")}</td><td><button class="button secondary edit-lead" data-id="${lead.id}" type="button">Edit</button></td></tr>`).join("") : '<tr><td colspan="8" class="not-found">No leads match these filters.</td></tr>';
 }
 
-[$("crmTypeFilter"), $("crmStatusFilter"), $("crmFollowUpFilter"), $("crmSort")].forEach((input) => input.addEventListener("change", renderCrm));
-$("crmSearch").addEventListener("input", renderCrm);
+[$("crmTypeFilter"), $("crmStatusFilter"), $("crmFollowUpFilter"), $("crmSort")].forEach((input) => input.addEventListener("change", () => { crmPage = 1; renderCrm(); }));
+$("crmSearch").addEventListener("input", () => { crmPage = 1; renderCrm(); });
+$("crmPrevious").addEventListener("click", () => { crmPage = Math.max(1, crmPage - 1); renderCrm(); window.scrollTo({ top:$("crmTable").offsetTop - 100, behavior:"smooth" }); });
+$("crmNext").addEventListener("click", () => { crmPage += 1; renderCrm(); window.scrollTo({ top:$("crmTable").offsetTop - 100, behavior:"smooth" }); });
 $("leadTypeForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const name = $("newLeadType").value.trim();
