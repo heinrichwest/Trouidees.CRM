@@ -1,0 +1,19 @@
+{
+  "name": "sales-research-firecrawl",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local Firecrawl-powered website research workspace for sales teams.",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "dev": "node --env-file-if-exists=.env --watch server.mjs",
+    "test": "node --test",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,11 @@
+.env
+data/reports/*.json
+!data/reports/.gitkeep
+data/crm/leads.json
+data/crm/types.json
+data/logs/*.log
+!data/logs/.gitkeep
+node_modules/
+npm-debug.log*
+playwright-report/
+test-results/

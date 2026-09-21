@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Guided Firecrawl research for sales teams.">
+    <title>Prospect Intelligence Desk</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/"><span class="mark">P</span><span><strong>Prospect</strong><small>Intelligence Desk</small></span></a>
+      <div class="top-actions"><button id="openMaps" class="button secondary" type="button">Google Maps Leads</button><button id="openCrm" class="button secondary" type="button">Lead CRM</button><div class="api-status"><i></i><span id="keyStatus">Checking setup…</span></div></div>
+    </header>
+
+    <main>
+      <section id="builderView" class="builder-layout">
+        <aside class="builder-intro">
+          <p class="eyebrow">Guided account research</p>
+          <h1>Tell us what you need to know.</h1>
+          <p>Build the brief first. We’ll research only the fields your sales team needs and show every result with its evidence.</p>
+          <ol class="steps" aria-label="Research steps">
+            <li class="active" data-step-dot="1"><b>1</b><span><strong>Objective</strong><small>What decision should this support?</small></span></li>
+            <li data-step-dot="2"><b>2</b><span><strong>Prospect</strong><small>Who are we researching?</small></span></li>
+            <li data-step-dot="3"><b>3</b><span><strong>Fields</strong><small>What exact results do you need?</small></span></li>
+            <li data-step-dot="4"><b>4</b><span><strong>Review</strong><small>Confirm scope and run</small></span></li>
+          </ol>
+        </aside>
+
+        <section class="builder-card">
+          <form id="researchForm">
+            <div class="step-panel" data-step="1">
+              <p class="step-count">Step 1 of 4</p>
+              <h2>What do you want this research to achieve?</h2>
+              <p class="lead">Choose the outcome that best matches the sales task.</p>
+              <div class="goal-grid">
+                <label class="choice"><input type="radio" name="researchGoal" value="Discover businesses or professionals as sales leads" data-mode="discovery" checked><span><b>Discover new leads</b><small>Search any market and return a contact table</small></span></label>
+                <label class="choice"><input type="radio" name="researchGoal" value="Qualify this company as a sales prospect" data-mode="company"><span><b>Qualify one prospect</b><small>Assess one company, timing and likely needs</small></span></label>
+                <label class="choice"><input type="radio" name="researchGoal" value="Find decision makers and public contact paths" data-mode="company"><span><b>Research one company</b><small>Identify roles and public contact details</small></span></label>
+                <label class="choice"><input type="radio" name="researchGoal" value="Understand one company and its market position" data-mode="company"><span><b>Market intelligence</b><small>Understand services and positioning</small></span></label>
+              </div>
+              <label class="field">Anything specific the researcher should focus on?
+                <textarea id="goalNotes" rows="3" placeholder="Example: Determine whether they use external training providers and who owns procurement."></textarea>
+              </label>
+            </div>
+
+            <div class="step-panel hidden" data-step="2">
+              <p class="step-count">Step 2 of 4</p>
+              <h2 id="prospectHeading">What should Firecrawl find?</h2>
+              <p id="prospectLead" class="lead">Describe any type of business or professional; no company website is required.</p>
+              <div id="discoveryFields">
+                <label class="field">Lead type <em>*</em><input id="leadType" value="Tutors" placeholder="Examples: Tutors, Photographers, Gift Sellers"><small>This keeps different categories separate in the CRM.</small></label>
+                <label class="field">Search request <em>*</em><textarea id="searchQuery" rows="3">Tutors and tutoring businesses in South Africa</textarea><small>Include the category, customer type and region for better results.</small></label>
+                <div class="presets" aria-label="Example searches"><button type="button" data-query="Publicly listed teachers, headmasters, principals and tutors at schools and education providers. Search South Africa first, then English-medium schools across Africa." data-lead-type="Education Contacts" data-education="true">Education contacts</button><button type="button" data-query="Tutors and tutoring businesses in South Africa" data-lead-type="Tutors">Tutors</button><button type="button" data-query="Professional photographers in South Africa" data-lead-type="Photographers">Photographers</button><button type="button" data-query="Gift shops, custom gift makers and corporate gift suppliers in South Africa" data-lead-type="Gift Sellers">Gift sellers</button><button type="button" data-query="" data-lead-type="">Custom</button></div>
+              </div>
+              <div id="companyFields" class="hidden">
+                <label class="field">Company website <em>*</em><input id="website" type="text" placeholder="https://example.co.za" autocomplete="url"></label>
+                <label class="field">Company name<input id="companyName" type="text" placeholder="Optional — we can infer it"></label>
+              </div>
+              <label class="field">What are you selling to them?<textarea id="offering" rows="4" placeholder="Describe your product or service so opportunities can be evaluated against it."></textarea></label>
+              <div class="two-col">
+                <label class="field">Country<input id="country" maxlength="2" value="ZA"></label>
+                <label class="field">Search location<input id="location" value="South Africa"></label>
+              </div>
+            </div>
+
+            <div class="step-panel hidden" data-step="3">
+              <p class="step-count">Step 3 of 4</p>
+              <h2>What fields must the result contain?</h2>
+              <p class="lead">Select the columns for the final evidence table.</p>
+              <div id="discoveryFieldGrid" class="field-grid">
+                <label><input type="checkbox" value="Name" checked><span>Name</span></label>
+                <label><input type="checkbox" value="Role" checked><span>Role</span></label>
+                <label><input type="checkbox" value="School name" checked><span>School name</span></label>
+                <label><input type="checkbox" value="Details" checked><span>Details</span></label>
+                <label><input type="checkbox" value="Phone numbers" checked><span>Phone numbers</span></label>
+                <label><input type="checkbox" value="Email addresses" checked><span>Email addresses</span></label>
+                <label><input type="checkbox" value="Location" checked><span>Location</span></label>
+                <label><input type="checkbox" value="Country" checked><span>Country</span></label>
+                <label><input type="checkbox" value="Language" checked><span>School language</span></label>
+                <label><input type="checkbox" value="School type" checked><span>School type</span></label>
+                <label><input type="checkbox" value="Subjects or services" checked><span>Subjects / services</span></label>
+                <label><input type="checkbox" value="Website" checked><span>Website</span></label>
+                <label><input type="checkbox" value="Source" checked><span>Evidence source</span></label>
+                <label><input type="checkbox" value="Sales fit note"><span>Sales fit note</span></label>
+              </div>
+              <div id="discoveryQuality" class="scope-grid">
+                <label class="toggle"><input id="professionalEmailsOnly" type="checkbox" checked><span><b>Professional emails only</b><small>Exclude Gmail, Yahoo, Outlook and other personal mailbox providers</small></span></label>
+                <label class="toggle"><input id="individualEmailsOnly" type="checkbox"><span><b>Named contacts only</b><small>Exclude generic inboxes such as info@, admin@ and admissions@</small></span></label>
+                <label class="toggle"><input id="englishSchoolsOnly" type="checkbox"><span><b>English-medium schools only</b><small>Require page evidence that English is used by the school</small></span></label>
+                <label class="toggle"><input id="educationRolesOnly" type="checkbox"><span><b>Teachers and school leaders only</b><small>Exclude unrelated addresses found on broad directory pages</small></span></label>
+              </div>
+              <p class="responsible"><strong>Email required:</strong> results without a public email address are excluded from the table and exports.</p>
+              <div id="companyFieldGrid" class="field-grid hidden">
+                <label><input type="checkbox" value="Company overview" checked><span>Company overview</span></label>
+                <label><input type="checkbox" value="Products and services" checked><span>Products & services</span></label>
+                <label><input type="checkbox" value="Target customers"><span>Target customers</span></label>
+                <label><input type="checkbox" value="Industries"><span>Industries</span></label>
+                <label><input type="checkbox" value="Locations"><span>Locations</span></label>
+                <label><input type="checkbox" value="Decision makers" checked><span>Decision makers</span></label>
+                <label><input type="checkbox" value="Public contact details" checked><span>Contact details</span></label>
+                <label><input type="checkbox" value="Buying signals" checked><span>Buying signals</span></label>
+                <label><input type="checkbox" value="Likely needs"><span>Likely needs</span></label>
+                <label><input type="checkbox" value="Sales opportunities" checked><span>Sales opportunities</span></label>
+                <label><input type="checkbox" value="Recent news"><span>Recent news</span></label>
+                <label><input type="checkbox" value="Differentiators"><span>Differentiators</span></label>
+                <label><input type="checkbox" value="Size indicators"><span>Size indicators</span></label>
+                <label><input type="checkbox" value="Social profiles"><span>Social profiles</span></label>
+              </div>
+              <label class="field">Custom fields <small>One field per line, up to 10</small>
+                <textarea id="customFields" rows="4" placeholder="Number of tutors&#10;Subjects and grades offered&#10;School partnerships"></textarea>
+              </label>
+            </div>
+
+            <div class="step-panel hidden" data-step="4">
+              <p class="step-count">Step 4 of 4</p>
+              <h2>Review the research brief.</h2>
+              <p class="lead">Confirm the scope before Firecrawl uses credits.</p>
+              <div id="reviewBox" class="review-box"></div>
+              <div class="scope-grid">
+                <label class="field"><span id="limitLabel">Maximum leads</span><input id="maxPages" type="number" min="1" max="100" value="10"></label>
+                <label id="unlimitedOption" class="toggle"><input id="unlimited" type="checkbox"><span><b>Unlimited overnight mode</b><small>No lead cap; email-qualified leads are checkpointed to the CRM after every search</small></span></label>
+                <label id="runHoursField" class="field hidden">Maximum run time (hours)<input id="runHours" type="number" min="1" max="12" value="8"></label>
+                <label class="toggle"><input id="includeSearch" type="checkbox" checked><span><b>External web search</b><small>Recent public signals outside the website</small></span></label>
+                <label class="toggle"><input id="useAgent" type="checkbox"><span><b>AI evidence synthesis</b><small>Optional deep research; may use substantial credits</small></span></label>
+                <label class="field">Agent credit cap<input id="agentMaxCredits" type="number" min="5" max="100" value="20"></label>
+              </div>
+              <p id="unlimitedWarning" class="cost-warning hidden"><strong>Usage warning:</strong> overnight mode can perform hundreds of scraped searches and consume substantial Firecrawl credits. Each completed search is saved to the CRM, so a browser disconnect does not lose earlier results. Keep this computer awake and the terminal running.</p>
+              <label id="apiKeyField" class="field">Firecrawl API key<input id="apiKey" type="password" placeholder="fc-…" autocomplete="off"><small>Used for this request only and never saved.</small></label>
+              <p class="responsible">Research public information lawfully and verify findings before outreach.</p>
+            </div>
+
+            <div id="formError" class="inline-error hidden" role="alert"></div>
+            <footer class="form-actions">
+              <button id="backButton" class="button secondary hidden" type="button">← Back</button>
+              <button id="nextButton" class="button primary" type="button">Continue <span>→</span></button>
+              <button id="runButton" class="button primary hidden" type="submit">Run research <span>→</span></button>
+            </footer>
+          </form>
+        </section>
+      </section>
+
+      <section id="mapsView" class="maps-view hidden">
+        <div class="maps-heading"><div><p class="eyebrow">Google Places business search</p><h1>Find local businesses with public phone numbers.</h1><p>Search categories across many towns, save each page immediately, and keep the results separate in your CRM.</p></div><button id="backFromMaps" class="button secondary" type="button">Back to research</button></div>
+        <form id="mapsForm" class="maps-card">
+          <div class="maps-grid">
+            <div>
+              <label class="field">Business category <em>*</em><input id="mapsBusinessType" value="Coffee shops" placeholder="Coffee shops, hair salons, gift shops"><small>Google returns businesses, not verified owner identities.</small></label>
+              <div class="presets"><button type="button" data-map-category="Coffee shops" data-map-type="Coffee Shops">Coffee shops</button><button type="button" data-map-category="Hair salons and beauty salons" data-map-type="Salons">Salons</button><button type="button" data-map-category="Gift shops" data-map-type="Gift Shops">Gift shops</button><button type="button" data-map-category="Restaurants" data-map-type="Restaurants">Restaurants</button></div>
+              <label class="field">CRM lead type <em>*</em><input id="mapsLeadType" value="Coffee Shops" placeholder="Example: Coffee Shops"><small>All matching listings are saved automatically under this type.</small></label>
+              <label class="field">Towns or areas <small>One per line. Leave blank to search 26 major South African areas.</small><textarea id="mapsLocations" rows="8" placeholder="Cape Town&#10;Johannesburg&#10;Pretoria&#10;Durban"></textarea></label>
+            </div>
+            <div>
+              <div class="two-col"><label class="field">Country code<input id="mapsRegionCode" maxlength="2" value="ZA"></label><label class="field">Maximum saved leads<input id="mapsMaxResults" type="number" min="1" max="5000" value="500"></label></div>
+              <label class="field">Pages per area<select id="mapsPages"><option value="1">1 page (up to 20)</option><option value="2">2 pages (up to 40)</option><option value="3" selected>3 pages (up to 60)</option></select></label>
+              <label class="toggle"><input id="mapsPhoneRequired" type="checkbox" checked><span><b>Phone number required</b><small>Do not save a listing unless Google provides a public business number</small></span></label>
+              <label id="mapsApiKeyField" class="field">Google Maps API key<input id="mapsApiKey" type="password" placeholder="AIza…" autocomplete="off"><small>Used for this request only and never stored in a report.</small></label>
+              <p class="cost-warning"><strong>Billing warning:</strong> Places API (New) and billing must be enabled. Phone fields can use a higher-priced Places SKU. Every results page is checkpointed to the CRM so completed work is not lost.</p>
+              <p class="responsible">Only public business listing data is collected. A listed phone can be a landline or shared business number; it is not proof of the owner’s personal cell number.</p>
+            </div>
+          </div>
+          <div id="mapsError" class="inline-error hidden" role="alert"></div>
+          <footer class="form-actions"><button class="button primary" type="submit">Search and save <span>→</span></button></footer>
+        </form>
+      </section>
+
+      <section id="loadingView" class="loading-view hidden" aria-live="polite">
+        <div class="pulse"><i></i></div><p id="loadingEyebrow" class="eyebrow">Firecrawl is researching</p><h2 id="loadingTitle">Preparing research tasks…</h2>
+        <p id="loadingDetail">The report will remain available if a crawl takes longer than expected.</p>
+        <div class="progress-track"><span id="progressBar"></span></div>
+        <button id="stopResearch" class="button secondary hidden" type="button">Stop and save leads found</button>
+      </section>
+
+      <section id="resultsView" class="results-view hidden">
+        <header class="results-header">
+          <div><p class="eyebrow">Completed sales brief</p><h1 id="resultCompany">Prospect</h1><p id="resultSummary"></p></div>
+          <div class="score"><strong id="resultScore">0</strong><small id="scoreLabel">Evidence score</small></div>
+        </header>
+        <div class="result-actions">
+          <button id="newResearch" class="button secondary" type="button">← New research</button>
+          <div><select id="saveLeadType" class="compact-input" aria-label="Save as lead type"></select><button id="saveToCrm" class="button primary" type="button">Save to CRM</button><button id="exportMarkdown" class="button secondary" type="button">Markdown</button><button id="exportCsv" class="button secondary" type="button">Table CSV</button><button id="exportJson" class="button secondary" type="button">JSON</button></div>
+        </div>
+        <section class="table-card">
+          <div class="section-title"><div><p class="eyebrow">Requested results</p><h2>Evidence table</h2></div><span id="resultMeta"></span></div>
+          <div class="table-scroll"><table id="resultsTable"><thead><tr><th>Requested field</th><th>Result</th><th>Evidence</th><th>Source</th></tr></thead><tbody></tbody></table></div>
+        </section>
+        <div class="detail-grid">
+          <section class="detail-card"><h2>Public contacts</h2><div id="contactsResult"></div></section>
+          <section class="detail-card"><h2>Recommended next steps</h2><div id="nextStepsResult"></div></section>
+          <section class="detail-card full"><h2>Warnings and research gaps</h2><div id="warningsResult"></div></section>
+        </div>
+      </section>
+
+      <section id="historySection" class="history-section">
+        <div><p class="eyebrow">Local archive</p><h2>Recent briefs</h2></div>
+        <div id="historyList" class="history-list"><p class="muted">No saved reports yet.</p></div>
+      </section>
+      <section id="crmView" class="results-view hidden">
+        <div class="crm-heading"><div><p class="eyebrow">Local sales workspace</p><h1>Lead CRM</h1><p>Track leads by type, outreach status and feedback.</p></div><button id="backToResearch" class="button secondary" type="button">Back to research</button></div>
+        <div class="crm-filters"><label>Lead type<select id="crmTypeFilter"><option value="">All types</option></select></label><label>Status<select id="crmStatusFilter"><option value="">All statuses</option><option>New</option><option>To contact</option><option>Contacted</option><option>Interested</option><option>Follow-up</option><option>Won</option><option>Not interested</option></select></label><label>Search<input id="crmSearch" placeholder="Name, email or comments"></label></div>
+        <section class="type-card"><div><p class="eyebrow">Categories</p><h2>Lead types</h2><p>Keep tutors, photographers, gift sellers and other markets in separate views.</p></div><form id="leadTypeForm"><label class="field">New lead type<input id="newLeadType" placeholder="Example: Florists" required></label><button class="button primary" type="submit">Add type</button></form><div class="table-scroll"><table id="leadTypeTable"><thead><tr><th>Type</th><th>Saved leads</th><th></th></tr></thead><tbody></tbody></table></div></section>
+        <section class="table-card"><div class="section-title"><div><p class="eyebrow">Saved leads</p><h2>Sales follow-up table</h2></div><span id="crmMeta"></span></div><div class="table-scroll"><table id="crmTable"><thead><tr><th>Type</th><th>Lead</th><th>Email / phone</th><th>Status</th><th>Last contact</th><th>Feedback / comments</th><th></th></tr></thead><tbody></tbody></table></div></section>
+      </section>
+    </main>
+    <dialog id="leadDialog"><form id="leadForm"><input id="editLeadId" type="hidden"><div class="dialog-heading"><h2 id="editLeadName">Edit lead</h2><button class="close-dialog" type="button" aria-label="Close">×</button></div><div class="two-col"><label class="field">Lead type<select id="editLeadType"></select></label><label class="field">Status<select id="editLeadStatus"><option>New</option><option>To contact</option><option>Contacted</option><option>Interested</option><option>Follow-up</option><option>Won</option><option>Not interested</option></select></label></div><label class="field">Last contacted<input id="editLastContact" type="date"></label><label class="field">Feedback from lead<textarea id="editFeedback" rows="4" placeholder="What did they say?"></textarea></label><label class="field">Internal comments / next action<textarea id="editComments" rows="4" placeholder="Notes, owner, follow-up date or next action"></textarea></label><div class="form-actions"><button class="button secondary close-dialog" type="button">Cancel</button><button id="saveLeadChanges" class="button primary" type="submit">Save changes</button></div></form></dialog>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
