@@ -9,6 +9,8 @@
     "dev": "node --env-file-if-exists=.env --watch server.mjs",
     "test": "node --test",
     "test:e2e": "playwright test",
+    "crm:session": "node scripts/create-crm-session.mjs",
+    "leads:google:nationwide": "node --env-file-if-exists=.env.local scripts/google-places-nationwide.mjs",
     "seed:neon": "node --env-file-if-exists=.env.local scripts/seed-neon.mjs"
   },
   "devDependencies": {

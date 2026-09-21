@@ -6,6 +6,7 @@ data/reports/*.json
 data/crm/leads.json
 data/crm/types.json
 data/logs/*.log
+data/logs/*.pid
 !data/logs/.gitkeep
 node_modules/
 npm-debug.log*
