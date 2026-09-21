@@ -440,9 +440,12 @@ function renderCrm() {
   const pageCount = Math.max(1, Math.ceil(leads.length / crmPageSize));
   crmPage = Math.min(crmPage, pageCount);
   const visibleLeads = leads.slice((crmPage - 1) * crmPageSize, crmPage * crmPageSize);
-  const overdue = crmLeads.filter((lead) => lead.nextFollowUpAt && lead.nextFollowUpAt < today && !["Won", "Not interested"].includes(lead.status)).length;
-  const dueWeek = crmLeads.filter((lead) => lead.nextFollowUpAt >= today && lead.nextFollowUpAt <= week).length;
-  $("crmSummary").innerHTML = [["Total leads",crmLeads.length,""],["New",crmLeads.filter((lead)=>lead.status==="New").length,""],["To contact",crmLeads.filter((lead)=>lead.status==="To contact").length,""],["Overdue",overdue,"alert"],["Due in 7 days",dueWeek,""]].map(([label,value,className])=>`<div class="summary-card ${className}"><strong>${value}</strong><span>${label}</span></div>`).join("");
+  const activeFilters = [type, status, followUp, query].filter(Boolean);
+  const overdue = leads.filter((lead) => lead.nextFollowUpAt && lead.nextFollowUpAt < today && !["Won", "Not interested"].includes(lead.status)).length;
+  const dueWeek = leads.filter((lead) => lead.nextFollowUpAt >= today && lead.nextFollowUpAt <= week).length;
+  $("crmSummary").innerHTML = [[activeFilters.length ? "Filtered leads" : "Total leads",leads.length,""],["New",leads.filter((lead)=>lead.status==="New").length,""],["To contact",leads.filter((lead)=>lead.status==="To contact").length,""],["Overdue",overdue,"alert"],["Due in 7 days",dueWeek,""]].map(([label,value,className])=>`<div class="summary-card ${className}"><strong>${value}</strong><span>${label}</span></div>`).join("");
+  $("crmFilterState").textContent = activeFilters.length ? `Active: ${[type, status, followUp, query && `Search “${query}”`].filter(Boolean).join(" · ")}` : "All leads";
+  $("clearCrmFilters").classList.toggle("hidden", activeFilters.length === 0);
   $("crmMeta").textContent = `${leads.length} of ${crmLeads.length} leads`;
   $("crmPageMeta").textContent = `Page ${crmPage} of ${pageCount}`;
   $("crmPrevious").disabled = crmPage <= 1; $("crmNext").disabled = crmPage >= pageCount;
@@ -452,6 +455,7 @@ function renderCrm() {
 
 [$("crmTypeFilter"), $("crmStatusFilter"), $("crmFollowUpFilter"), $("crmSort")].forEach((input) => input.addEventListener("change", () => { crmPage = 1; renderCrm(); }));
 $("crmSearch").addEventListener("input", () => { crmPage = 1; renderCrm(); });
+$("clearCrmFilters").addEventListener("click", () => { $("crmTypeFilter").value = ""; $("crmStatusFilter").value = ""; $("crmFollowUpFilter").value = ""; $("crmSearch").value = ""; crmPage = 1; renderCrm(); });
 $("crmPrevious").addEventListener("click", () => { crmPage = Math.max(1, crmPage - 1); renderCrm(); window.scrollTo({ top:$("crmTable").offsetTop - 100, behavior:"smooth" }); });
 $("crmNext").addEventListener("click", () => { crmPage += 1; renderCrm(); window.scrollTo({ top:$("crmTable").offsetTop - 100, behavior:"smooth" }); });
 $("leadTypeForm").addEventListener("submit", async (event) => {
