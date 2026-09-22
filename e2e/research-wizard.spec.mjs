@@ -151,3 +151,24 @@ test("discovers multiple tutors without requiring a company website", async ({ p
   await expect(page.locator("#crmTable")).toContainText("Requested a proposal next week.");
   expect(savedChanges.feedback).toBe("Requested a proposal next week.");
 });
+
+test("hides overnight mode on hosted deployments and explains plain-text timeouts", async ({ page }) => {
+  await page.route("**/api/health", (route) => route.fulfill({ json: { ok: true, apiKeyConfigured: true, serverless: true } }));
+  await page.route("**/api/reports", (route) => route.fulfill({ json: { reports: [] } }));
+  await page.route("**/api/research", (route) => route.fulfill({
+    status: 504,
+    contentType: "text/plain",
+    body: "An error occurred with your deployment",
+  }));
+
+  await page.goto("/");
+  await expect(page.getByLabel("Unlimited overnight mode")).toBeHidden();
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await page.locator("#searchQuery").fill("Tutors in South Africa");
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await page.getByRole("button", { name: /Continue/ }).click();
+  await page.getByRole("button", { name: /Run research/ }).click();
+
+  await expect(page.locator("#formError")).toContainText("hosted request timed out or was interrupted");
+  await expect(page.locator("#formError")).not.toContainText("not valid JSON");
+});

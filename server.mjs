@@ -88,8 +88,8 @@ function normalizeInput(body) {
     if (!["http:", "https:"].includes(parsed.protocol)) throw new RequestError("Only HTTP and HTTPS websites are supported.");
     parsed.hash = "";
   }
-  const unlimited = mode === "discovery" && body.unlimited === true;
-  const maxPages = unlimited ? 0 : Math.max(1, Math.min(100, Number(body.maxPages) || 10));
+  const unlimited = mode === "discovery" && body.unlimited === true && !process.env.VERCEL;
+  const maxPages = unlimited ? 0 : Math.max(1, Math.min(process.env.VERCEL ? 25 : 100, Number(body.maxPages) || 10));
   const runHours = Math.max(1, Math.min(12, Number(body.runHours) || 8));
   const leadType = String(body.leadType || "").trim().slice(0, 100);
   if (mode === "discovery" && !leadType) throw new RequestError("Enter a lead type, such as Tutors, Photographers or Gift Sellers.");

@@ -3,6 +3,7 @@ let step = 1;
 let currentReport = null;
 let apiKeyConfigured = false;
 let googleMapsKeyConfigured = false;
+let hostedServerless = false;
 let activeJobId = null;
 let crmLeads = [];
 let crmTypes = [];
@@ -18,6 +19,18 @@ const crmPageSize = 100;
 
 const escapeHtml = (value = "") => String(value).replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
 const safeUrl = (value = "") => { try { const url = new URL(value); return ["http:","https:"].includes(url.protocol) ? escapeHtml(url.href) : ""; } catch { return ""; } };
+async function apiPayload(response, fallbackMessage) {
+  const text = await response.text();
+  if (!text) {
+    if (!response.ok) throw new Error(`${fallbackMessage} (HTTP ${response.status})`);
+    return {};
+  }
+  try { return JSON.parse(text); }
+  catch {
+    if (response.status >= 500) throw new Error("The hosted request timed out or was interrupted. Reduce the scope and try again.");
+    throw new Error(response.ok ? fallbackMessage : `Server request failed (HTTP ${response.status}).`);
+  }
+}
 const typeNames = () => crmTypes.map((type) => type.name);
 function setTypeSelect(select, selected = "", includeAll = false) {
   const names = [...typeNames()];
@@ -75,7 +88,7 @@ function syncModeUi() {
   $("prospectHeading").textContent = discovery ? "What should Firecrawl find?" : "Which company should we investigate?";
   $("prospectLead").textContent = discovery ? "Describe any type of business or professional; no company website is required." : "A website is enough. The other details improve relevance.";
   $("limitLabel").textContent = discovery ? "Maximum leads" : "Maximum website pages";
-  $("unlimitedOption").classList.toggle("hidden", !discovery);
+  $("unlimitedOption").classList.toggle("hidden", !discovery || hostedServerless);
   if (!discovery) $("unlimited").checked = false;
   syncUnlimitedUi();
 }
@@ -120,7 +133,7 @@ function payload() {
     location: $("location").value,
     requestedFields: [...selectedFields(), ...customFields()],
     maxPages: Number($("maxPages").value),
-    unlimited: selectedMode() === "discovery" && $("unlimited").checked,
+    unlimited: selectedMode() === "discovery" && $("unlimited").checked && !hostedServerless,
     runHours: Number($("runHours").value),
     includeSearch: $("includeSearch").checked,
     useAgent: $("useAgent").checked,
@@ -170,7 +183,7 @@ async function pollJob(jobId) {
       await new Promise((resolve) => setTimeout(resolve, 5_000));
       continue;
     }
-    const job = await response.json();
+    const job = await apiPayload(response, "Could not read the research job response.");
     if (!response.ok) {
       sessionStorage.removeItem("activeResearchJob");
       throw new Error(job.error || "The server restarted. Open the CRM or Recent briefs to view the last automatic checkpoint.");
@@ -193,6 +206,7 @@ async function pollJob(jobId) {
 $("researchForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!validateStep()) return;
+  if (hostedServerless && $("unlimited").checked) { $("unlimited").checked = false; syncUnlimitedUi(); }
   const existingJob = sessionStorage.getItem("activeResearchJob");
   if (existingJob) {
     showMain("loading");
@@ -215,7 +229,7 @@ $("researchForm").addEventListener("submit", async (event) => {
       headers: { "Content-Type":"application/json", ...($("apiKey").value ? { "X-Firecrawl-Key":$("apiKey").value } : {}) },
       body: JSON.stringify(payload()),
     });
-    const job = await response.json();
+    const job = await apiPayload(response, "Could not read the research response.");
     if (!response.ok) throw new Error(job.error || "Research could not start.");
     if (job.status === "completed") { renderReport(job.result); await loadHistory(); }
     else if (job.status === "failed") throw new Error(job.error || "Research failed.");
@@ -268,7 +282,7 @@ $("mapsForm").addEventListener("submit", async (event) => {
         mobileOnly: $("mapsMobileOnly").checked,
       }),
     });
-    const job = await response.json();
+    const job = await apiPayload(response, "Could not read the Google Maps response.");
     if (!response.ok) throw new Error(job.error || "Google Maps research could not start.");
     if (job.status === "completed") { renderReport(job.result); await loadHistory(); }
     else if (job.status === "failed") throw new Error(job.error || "Google Maps research failed.");
@@ -602,7 +616,7 @@ function renderCrm() {
     || (followUp === "overdue" && lead.nextFollowUpAt && lead.nextFollowUpAt < today && !["Won", "Not interested"].includes(lead.status))
     || (followUp === "today" && lead.nextFollowUpAt === today)
     || (followUp === "week" && lead.nextFollowUpAt >= today && lead.nextFollowUpAt <= week);
-  const leads = crmLeads.filter((lead) => (!type || lead.leadType === type) && (!status || lead.status === status) && dueMatch(lead) && (!query || `${lead.name} ${lead.role || ""} ${lead.organization || ""} ${lead.email} ${lead.phone || ""} ${lead.location || ""} ${lead.assignedTo || ""} ${lead.comments || ""} ${lead.feedback || ""}`.toLowerCase().includes(query)));
+  const leads = crmLeads.filter((lead) => (!type || lead.leadType === type) && (!status || lead.status === status) && dueMatch(lead) && (!query || `${lead.name} ${lead.role || ""} ${lead.organization || ""} ${lead.email} ${lead.phone || ""} ${lead.location || ""} ${lead.services || ""} ${lead.assignedTo || ""} ${lead.comments || ""} ${lead.feedback || ""}`.toLowerCase().includes(query)));
   leads.sort((left, right) => sort === "name" ? left.name.localeCompare(right.name) : sort === "newest" ? String(right.createdAt || "").localeCompare(String(left.createdAt || "")) : String(left.nextFollowUpAt || "9999").localeCompare(String(right.nextFollowUpAt || "9999")));
   filteredCrmLeads = leads;
   const pageCount = Math.max(1, Math.ceil(leads.length / crmPageSize));
@@ -618,7 +632,7 @@ function renderCrm() {
   $("crmPageMeta").textContent = `Page ${crmPage} of ${pageCount}`;
   $("crmPrevious").disabled = crmPage <= 1; $("crmNext").disabled = crmPage >= pageCount;
   $("crmPagination").classList.toggle("hidden", leads.length <= crmPageSize);
-  $("crmTable").querySelector("tbody").innerHTML = visibleLeads.length ? visibleLeads.map((lead) => `<tr><td>${escapeHtml(lead.leadType)}</td><td><strong>${escapeHtml(lead.name)}</strong><br><small>${escapeHtml([lead.role, lead.organization, lead.location].filter(Boolean).join(" · "))}</small></td><td>${escapeHtml(lead.email || "—")}<br><small>${escapeHtml(lead.phone || "")}</small></td><td><span class="status-chip">${escapeHtml(lead.status)}</span><br><span class="priority-chip ${String(lead.priority || "Normal").toLowerCase()}">${escapeHtml(lead.priority || "Normal")}</span></td><td class="${lead.nextFollowUpAt && lead.nextFollowUpAt < today ? "followup-overdue" : ""}">${escapeHtml(lead.nextFollowUpAt || "—")}</td><td>${escapeHtml(lead.assignedTo || "Unassigned")}</td><td class="notes-cell">${escapeHtml(lead.feedback || lead.comments || "—")}</td><td><button class="button secondary edit-lead" data-id="${lead.id}" type="button">Edit</button></td></tr>`).join("") : '<tr><td colspan="8" class="not-found">No leads match these filters.</td></tr>';
+  $("crmTable").querySelector("tbody").innerHTML = visibleLeads.length ? visibleLeads.map((lead) => `<tr><td>${escapeHtml(lead.leadType)}</td><td><strong>${escapeHtml(lead.name)}</strong><br><small>${escapeHtml([lead.role, lead.organization, lead.location, lead.services && `Subjects/services: ${lead.services}`].filter(Boolean).join(" · "))}</small></td><td>${escapeHtml(lead.email || "—")}<br><small>${escapeHtml(lead.phone || "")}</small></td><td><span class="status-chip">${escapeHtml(lead.status)}</span><br><span class="priority-chip ${String(lead.priority || "Normal").toLowerCase()}">${escapeHtml(lead.priority || "Normal")}</span></td><td class="${lead.nextFollowUpAt && lead.nextFollowUpAt < today ? "followup-overdue" : ""}">${escapeHtml(lead.nextFollowUpAt || "—")}</td><td>${escapeHtml(lead.assignedTo || "Unassigned")}</td><td class="notes-cell">${escapeHtml(lead.feedback || lead.comments || "—")}</td><td><button class="button secondary edit-lead" data-id="${lead.id}" type="button">Edit</button></td></tr>`).join("") : '<tr><td colspan="8" class="not-found">No leads match these filters.</td></tr>';
 }
 
 [$("crmTypeFilter"), $("crmStatusFilter"), $("crmFollowUpFilter"), $("crmSort")].forEach((input) => input.addEventListener("change", () => { crmPage = 1; renderCrm(); }));
@@ -657,12 +671,12 @@ $("crmTable").addEventListener("click", (event) => {
   const button = event.target.closest(".edit-lead"); if (!button) return;
   const lead = crmLeads.find((item) => item.id === button.dataset.id); if (!lead) return;
   $("editLeadId").value = lead.id; $("editLeadName").textContent = lead.name; setTypeSelect($("editLeadType"), lead.leadType);
-  $("editLeadStatus").value = lead.status; $("editPriority").value = lead.priority || "Normal"; $("editAssignedTo").value = lead.assignedTo || ""; $("editLastContact").value = lead.lastContactedAt; $("editNextFollowUp").value = lead.nextFollowUpAt || ""; $("editFeedback").value = lead.feedback; $("editComments").value = lead.comments;
+  $("editLeadStatus").value = lead.status; $("editPriority").value = lead.priority || "Normal"; $("editAssignedTo").value = lead.assignedTo || ""; $("editLastContact").value = lead.lastContactedAt; $("editNextFollowUp").value = lead.nextFollowUpAt || ""; $("editServices").value = lead.services || ""; $("editFeedback").value = lead.feedback; $("editComments").value = lead.comments;
   $("leadDialog").showModal();
 });
 $("leadForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const response = await fetch(`/api/crm/leads/${encodeURIComponent($("editLeadId").value)}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ leadType:$("editLeadType").value, status:$("editLeadStatus").value, priority:$("editPriority").value, assignedTo:$("editAssignedTo").value, lastContactedAt:$("editLastContact").value, nextFollowUpAt:$("editNextFollowUp").value, feedback:$("editFeedback").value, comments:$("editComments").value }) });
+  const response = await fetch(`/api/crm/leads/${encodeURIComponent($("editLeadId").value)}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ leadType:$("editLeadType").value, status:$("editLeadStatus").value, priority:$("editPriority").value, assignedTo:$("editAssignedTo").value, lastContactedAt:$("editLastContact").value, nextFollowUpAt:$("editNextFollowUp").value, services:$("editServices").value, feedback:$("editFeedback").value, comments:$("editComments").value }) });
   if (!response.ok) return alert("Could not update this lead.");
   $("leadDialog").close(); await loadCrm();
 });
@@ -676,7 +690,7 @@ $("deleteLead").addEventListener("click", async () => {
 
 $("exportCrm").addEventListener("click", () => {
   const quote = (value="") => `"${String(value).replaceAll('"','""')}"`;
-  const fields = ["leadType","name","email","phone","status","priority","assignedTo","nextFollowUpAt","lastContactedAt","location","website","feedback","comments"];
+  const fields = ["leadType","name","email","phone","services","status","priority","assignedTo","nextFollowUpAt","lastContactedAt","location","website","feedback","comments"];
   const csv = [fields, ...filteredCrmLeads.map((lead) => fields.map((field) => lead[field] || ""))].map((row) => row.map(quote).join(",")).join("\r\n");
   download("crm-leads.csv", csv, "text/csv");
 });
@@ -801,11 +815,11 @@ async function initializeWorkspace() {
   const healthResponse = await fetch("/api/health");
   if (healthResponse.ok) {
     const health = await healthResponse.json();
-    apiKeyConfigured = health.apiKeyConfigured; googleMapsKeyConfigured = health.googleMapsKeyConfigured;
+    apiKeyConfigured = health.apiKeyConfigured; googleMapsKeyConfigured = health.googleMapsKeyConfigured; hostedServerless = health.serverless === true;
     $("keyStatus").textContent = health.apiKeyConfigured ? "Firecrawl configured" : "Firecrawl key entered at final step";
     document.querySelector(".api-status i").classList.toggle("ready", health.apiKeyConfigured);
     $("apiKeyField").classList.toggle("hidden", health.apiKeyConfigured); $("mapsApiKeyField").classList.toggle("hidden", health.googleMapsKeyConfigured);
-    if (health.serverless) { $("unlimited").checked = false; $("unlimitedOption").classList.add("hidden"); syncUnlimitedUi(); }
+    if (hostedServerless) { $("unlimited").checked = false; $("unlimitedOption").classList.add("hidden"); syncUnlimitedUi(); }
   }
   syncModeUi();
   await loadHistory();

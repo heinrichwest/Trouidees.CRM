@@ -14,6 +14,13 @@ const searches = [
   { oldType: "Coffee Shops - Gauteng Mobile", leadType: "Coffee Shops - South Africa Mobile", query: "coffee shops" },
   { oldType: "Salons - Gauteng Mobile", leadType: "Salons - South Africa Mobile", query: "hair and beauty salons" },
   { oldType: "", leadType: "Photographers - South Africa Mobile", query: "professional photographers" },
+  { oldType: "", leadType: "Tutors - South Africa Mobile", query: "tutors and tutoring services" },
+  { oldType: "", leadType: "Tutors - South Africa Mobile", checkpoint: "Tutors Mathematics Science", query: "mathematics and science tutors", maxPages: 1 },
+  { oldType: "", leadType: "Tutors - South Africa Mobile", checkpoint: "Tutors English", query: "English language tutors", maxPages: 1 },
+  { oldType: "", leadType: "Tutors - South Africa Mobile", checkpoint: "Tutors Afrikaans", query: "Afrikaans tutors", maxPages: 1 },
+  { oldType: "", leadType: "Tutors - South Africa Mobile", checkpoint: "Tutors Accounting Economics", query: "accounting and economics tutors", maxPages: 1 },
+  { oldType: "", leadType: "Tutors - South Africa Mobile", checkpoint: "Tutors Primary School", query: "primary school tutors", maxPages: 1 },
+  { oldType: "", leadType: "Tutors - South Africa Mobile", checkpoint: "Tutors High School", query: "high school tutors", maxPages: 1 },
 ];
 
 const locations = [...new Set(`
@@ -68,11 +75,11 @@ async function findGoogleKey() {
   throw new Error("No working Google Places API key was found.");
 }
 
-async function searchWithRetry(client, query, onPage) {
+async function searchWithRetry(client, query, maxPages, onPage) {
   let lastError;
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
-      return await client.searchText(query, { maxPages: 3, regionCode: "ZA" }, onPage);
+      return await client.searchText(query, { maxPages, regionCode: "ZA" }, onPage);
     } catch (error) {
       lastError = error;
       if ([400, 401, 403].includes(error.status) || attempt === 4) throw error;
@@ -157,13 +164,13 @@ await log(`Nationwide Google Places run ready: ${locations.length} areas, ${sear
 
 for (const search of searches) {
   for (const location of locations) {
-    const checkpoint = `${search.leadType}|${location}`;
+    const checkpoint = `${search.checkpoint || search.leadType}|${location}`;
     if (completed.has(checkpoint)) continue;
     const query = `${search.query} in ${location}, South Africa`;
     let queryImported = 0;
     let querySkipped = 0;
     try {
-      const result = await searchWithRetry(client, query, async (places) => {
+      const result = await searchWithRetry(client, query, search.maxPages || 3, async (places) => {
         const leads = places
           .map((place) => placeToLead(place, `${location}, South Africa`))
           .filter((lead) => lead.phone && isLikelySouthAfricanMobileNumber(lead.phone));

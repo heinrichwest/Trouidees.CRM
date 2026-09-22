@@ -26,10 +26,12 @@ test("CRM saves only email-qualified leads and tracks sales follow-up", async ()
       status: "Contacted",
       feedback: "Asked for a catalogue.",
       comments: "Follow up on Monday.",
+      services: "Mathematics; Physical Sciences",
       lastContactedAt: "2026-09-10",
     });
     assert.equal(updated.status, "Contacted");
     assert.equal(updated.feedback, "Asked for a catalogue.");
+    assert.equal(updated.services, "Mathematics; Physical Sciences");
 
     await renameLeadType(typesFile, leadsFile, "Florists", "Event Florists");
     leads = await listCrmLeads(leadsFile);

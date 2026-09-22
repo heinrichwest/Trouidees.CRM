@@ -37,7 +37,9 @@ On Windows, double-click the **Prospect Intelligence Desk** desktop shortcut. It
 
 For Google Maps business search, enable **Places API (New)** and billing in Google Cloud, then add `GOOGLE_MAPS_API_KEY=...` to `.env` or enter the key on the Google Maps Leads screen. The CRM Lead Map also requires **Maps JavaScript API** and `GOOGLE_MAPS_BROWSER_API_KEY`; use a separate browser key restricted to your production domain.
 
-For the resumable nationwide coffee-shop, salon and photographer run, use `npm run crm:session` once and then `npm run leads:google:nationwide`. It checkpoints every area in `data/logs/`, writes each results page directly to Neon, and resumes unfinished areas after a restart. The runner keeps only public numbers matching South African mobile-number patterns; it does not verify that a listed number belongs to the owner.
+For the resumable nationwide coffee-shop, salon, photographer and tutor run, use `npm run crm:session` once and then `npm run leads:google:nationwide`. It checkpoints every area in `data/logs/`, writes each results page directly to Neon, and resumes unfinished areas after a restart. The runner keeps only public numbers matching South African mobile-number patterns; it does not verify that a listed number belongs to the owner.
+
+Run `npm run leads:tutors:enrich` to check tutor websites for explicitly published subjects and save verified matches into the CRM. This enrichment reads public pages directly, checkpoints its progress, and does not consume Firecrawl credits.
 
 ## Vercel and Neon
 
