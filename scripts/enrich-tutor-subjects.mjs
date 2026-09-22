@@ -63,15 +63,27 @@ async function fetchHtml(url) {
 }
 
 async function apiRequest(path, cookie, options = {}) {
-  const response = await fetch(`${appUrl}${path}`, {
-    ...options,
-    headers: { "Content-Type": "application/json", Cookie: cookie, ...(options.headers || {}) },
-  });
-  const text = await response.text();
-  let payload = {};
-  try { payload = text ? JSON.parse(text) : {}; } catch {}
-  if (!response.ok) throw new Error(payload.error || `CRM request failed with HTTP ${response.status}`);
-  return payload;
+  let lastError;
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    try {
+      const response = await fetch(`${appUrl}${path}`, {
+        ...options,
+        headers: { "Content-Type": "application/json", Cookie: cookie, ...(options.headers || {}) },
+      });
+      const text = await response.text();
+      let payload = {};
+      try { payload = text ? JSON.parse(text) : {}; } catch {}
+      if (response.ok) return payload;
+      const error = Object.assign(new Error(payload.error || `CRM request failed with HTTP ${response.status}`), { status: response.status });
+      if (![429, 500, 502, 503, 504].includes(response.status)) throw error;
+      lastError = error;
+    } catch (error) {
+      lastError = error;
+      if (error.status && ![429, 500, 502, 503, 504].includes(error.status)) throw error;
+    }
+    if (attempt < 6) await sleep(attempt * 2_000);
+  }
+  throw lastError;
 }
 
 async function inspectWebsite(website) {
