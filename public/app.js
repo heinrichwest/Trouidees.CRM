@@ -601,6 +601,25 @@ function renderLeadTypes() {
   $("leadTypeTable").querySelector("tbody").innerHTML = crmTypes.length ? crmTypes.map((type) => `<tr><td><strong>${escapeHtml(type.name)}</strong></td><td>${Number(type.count || 0)}</td><td><div class="type-actions"><button class="button secondary rename-type" data-name="${escapeHtml(type.name)}" type="button">Rename</button><button class="button secondary delete-type" data-name="${escapeHtml(type.name)}" type="button" ${type.count ? "disabled title=\"Move these leads to another type first\"" : ""}>Delete</button></div></td></tr>`).join("") : '<tr><td colspan="3" class="not-found">No lead types yet.</td></tr>';
 }
 
+function feedbackHistoryFor(lead) {
+  const history = Array.isArray(lead.feedbackHistory) ? [...lead.feedbackHistory] : [];
+  const legacy = String(lead.feedback || "").trim();
+  if (legacy && !history.some((entry) => String(entry.text || "").trim() === legacy)) {
+    history.push({ text: legacy, author: "Previous CRM entry", createdAt: lead.updatedAt || lead.createdAt || "", status: lead.status });
+  }
+  return history.filter((entry) => String(entry.text || "").trim()).sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+}
+
+function renderFeedbackHistory(lead) {
+  const history = feedbackHistoryFor(lead);
+  $("feedbackHistoryCount").textContent = `${history.length} ${history.length === 1 ? "entry" : "entries"}`;
+  $("feedbackHistory").innerHTML = history.length ? history.map((entry) => {
+    const date = entry.createdAt ? new Date(entry.createdAt) : null;
+    const formattedDate = date && !Number.isNaN(date.getTime()) ? date.toLocaleString("en-ZA", { dateStyle:"medium", timeStyle:"short" }) : "Date unavailable";
+    return `<article class="feedback-entry"><div><strong>${escapeHtml(entry.author || "Unknown user")}</strong><time>${escapeHtml(formattedDate)}</time>${entry.status ? `<span>${escapeHtml(entry.status)}</span>` : ""}</div><p>${escapeHtml(entry.text)}</p></article>`;
+  }).join("") : '<p class="feedback-empty">No feedback recorded yet.</p>';
+}
+
 function renderCrm() {
   const type = $("crmTypeFilter").value;
   const status = $("crmStatusFilter").value;
@@ -616,7 +635,7 @@ function renderCrm() {
     || (followUp === "overdue" && lead.nextFollowUpAt && lead.nextFollowUpAt < today && !["Won", "Not interested"].includes(lead.status))
     || (followUp === "today" && lead.nextFollowUpAt === today)
     || (followUp === "week" && lead.nextFollowUpAt >= today && lead.nextFollowUpAt <= week);
-  const leads = crmLeads.filter((lead) => (!type || lead.leadType === type) && (!status || lead.status === status) && dueMatch(lead) && (!query || `${lead.name} ${lead.role || ""} ${lead.organization || ""} ${lead.email} ${lead.phone || ""} ${lead.location || ""} ${lead.services || ""} ${lead.assignedTo || ""} ${lead.comments || ""} ${lead.feedback || ""}`.toLowerCase().includes(query)));
+  const leads = crmLeads.filter((lead) => (!type || lead.leadType === type) && (!status || lead.status === status) && dueMatch(lead) && (!query || `${lead.name} ${lead.role || ""} ${lead.organization || ""} ${lead.email} ${lead.phone || ""} ${lead.location || ""} ${lead.services || ""} ${lead.assignedTo || ""} ${lead.comments || ""} ${lead.feedback || ""} ${feedbackHistoryFor(lead).map((entry) => entry.text).join(" ")}`.toLowerCase().includes(query)));
   leads.sort((left, right) => sort === "name" ? left.name.localeCompare(right.name) : sort === "newest" ? String(right.createdAt || "").localeCompare(String(left.createdAt || "")) : String(left.nextFollowUpAt || "9999").localeCompare(String(right.nextFollowUpAt || "9999")));
   filteredCrmLeads = leads;
   const pageCount = Math.max(1, Math.ceil(leads.length / crmPageSize));
@@ -671,12 +690,13 @@ $("crmTable").addEventListener("click", (event) => {
   const button = event.target.closest(".edit-lead"); if (!button) return;
   const lead = crmLeads.find((item) => item.id === button.dataset.id); if (!lead) return;
   $("editLeadId").value = lead.id; $("editLeadName").textContent = lead.name; setTypeSelect($("editLeadType"), lead.leadType);
-  $("editLeadStatus").value = lead.status; $("editPriority").value = lead.priority || "Normal"; $("editAssignedTo").value = lead.assignedTo || ""; $("editLastContact").value = lead.lastContactedAt; $("editNextFollowUp").value = lead.nextFollowUpAt || ""; $("editServices").value = lead.services || ""; $("editFeedback").value = lead.feedback; $("editComments").value = lead.comments;
+  $("editLeadStatus").value = lead.status; $("editPriority").value = lead.priority || "Normal"; $("editAssignedTo").value = lead.assignedTo || ""; $("editLastContact").value = lead.lastContactedAt; $("editNextFollowUp").value = lead.nextFollowUpAt || ""; $("editServices").value = lead.services || ""; $("editFeedback").value = ""; $("editComments").value = lead.comments;
+  renderFeedbackHistory(lead);
   $("leadDialog").showModal();
 });
 $("leadForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const response = await fetch(`/api/crm/leads/${encodeURIComponent($("editLeadId").value)}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ leadType:$("editLeadType").value, status:$("editLeadStatus").value, priority:$("editPriority").value, assignedTo:$("editAssignedTo").value, lastContactedAt:$("editLastContact").value, nextFollowUpAt:$("editNextFollowUp").value, services:$("editServices").value, feedback:$("editFeedback").value, comments:$("editComments").value }) });
+  const response = await fetch(`/api/crm/leads/${encodeURIComponent($("editLeadId").value)}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ leadType:$("editLeadType").value, status:$("editLeadStatus").value, priority:$("editPriority").value, assignedTo:$("editAssignedTo").value, lastContactedAt:$("editLastContact").value, nextFollowUpAt:$("editNextFollowUp").value, services:$("editServices").value, feedbackEntry:$("editFeedback").value, comments:$("editComments").value }) });
   if (!response.ok) return alert("Could not update this lead.");
   $("leadDialog").close(); await loadCrm();
 });
@@ -690,8 +710,8 @@ $("deleteLead").addEventListener("click", async () => {
 
 $("exportCrm").addEventListener("click", () => {
   const quote = (value="") => `"${String(value).replaceAll('"','""')}"`;
-  const fields = ["leadType","name","email","phone","services","status","priority","assignedTo","nextFollowUpAt","lastContactedAt","location","website","feedback","comments"];
-  const csv = [fields, ...filteredCrmLeads.map((lead) => fields.map((field) => lead[field] || ""))].map((row) => row.map(quote).join(",")).join("\r\n");
+  const fields = ["leadType","name","email","phone","services","status","priority","assignedTo","nextFollowUpAt","lastContactedAt","location","website","feedback","feedbackHistory","comments"];
+  const csv = [fields, ...filteredCrmLeads.map((lead) => fields.map((field) => field === "feedbackHistory" ? feedbackHistoryFor(lead).map((entry) => `${entry.createdAt || ""} | ${entry.author || ""} | ${entry.status || ""} | ${entry.text}`).join("\n") : lead[field] || ""))].map((row) => row.map(quote).join(",")).join("\r\n");
   download("crm-leads.csv", csv, "text/csv");
 });
 

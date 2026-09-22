@@ -32,6 +32,17 @@ test("CRM saves only email-qualified leads and tracks sales follow-up", async ()
     assert.equal(updated.status, "Contacted");
     assert.equal(updated.feedback, "Asked for a catalogue.");
     assert.equal(updated.services, "Mathematics; Physical Sciences");
+    assert.equal(updated.feedbackHistory.length, 1);
+
+    const followedUp = await updateCrmLead(leadsFile, leads[0].id, {
+      status: "Follow-up",
+      feedbackEntry: "Requested pricing by email.",
+      feedbackAuthor: "sales@example.com",
+    });
+    assert.equal(followedUp.feedback, "Requested pricing by email.");
+    assert.deepEqual(followedUp.feedbackHistory.map((entry) => entry.text), ["Asked for a catalogue.", "Requested pricing by email."]);
+    assert.equal(followedUp.feedbackHistory[1].author, "sales@example.com");
+    assert.equal(followedUp.feedbackHistory[1].status, "Follow-up");
 
     await renameLeadType(typesFile, leadsFile, "Florists", "Event Florists");
     leads = await listCrmLeads(leadsFile);

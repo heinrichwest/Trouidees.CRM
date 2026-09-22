@@ -609,7 +609,9 @@ export async function handleRequest(request, response, { serveFiles = true } = {
     if (request.method === "PATCH" && url.pathname.startsWith("/api/crm/leads/")) {
       const id = decodeURIComponent(url.pathname.slice("/api/crm/leads/".length));
       if (!/^[a-f0-9-]{36}$/i.test(id)) throw new RequestError("Invalid lead ID.");
-      const lead = await crmUpdateLead(id, await readBody(request));
+      const changes = await readBody(request);
+      if (changes.feedbackEntry !== undefined || changes.feedback !== undefined) changes.feedbackAuthor = user.email;
+      const lead = await crmUpdateLead(id, changes);
       if (!lead) throw new RequestError("Lead not found.", 404);
       return sendJson(response, 200, lead);
     }
