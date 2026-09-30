@@ -98,8 +98,7 @@ test("discovers multiple tutors without requiring a company website", async ({ p
   });
   await page.route("**/api/crm/leads/*", async (route) => {
     savedChanges = route.request().postDataJSON();
-    const feedbackHistory = savedChanges.feedbackEntry ? [{ text: savedChanges.feedbackEntry, author: "sales@example.com", createdAt: "2026-09-22T10:00:00.000Z", status: savedChanges.status }] : [];
-    crmLeads[0] = { ...crmLeads[0], ...savedChanges, feedback: savedChanges.feedbackEntry || crmLeads[0].feedback, feedbackHistory };
+    crmLeads[0] = { ...crmLeads[0], ...savedChanges };
     await route.fulfill({ json: crmLeads[0] });
   });
   await page.route("**/api/crm/leads", (route) => route.fulfill({ json: { leads: crmLeads } }));
@@ -146,14 +145,11 @@ test("discovers multiple tutors without requiring a company website", async ({ p
   await expect(page.locator("#crmTable tbody tr")).toHaveCount(2);
   await page.locator("#crmTable .edit-lead").first().click();
   await page.locator("#editLeadStatus").selectOption("Contacted");
-  await page.getByLabel("Add feedback update").fill("Requested a proposal next week.");
+  await page.getByLabel("Feedback from lead").fill("Requested a proposal next week.");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.locator("#crmTable")).toContainText("Contacted");
   await expect(page.locator("#crmTable")).toContainText("Requested a proposal next week.");
-  expect(savedChanges.feedbackEntry).toBe("Requested a proposal next week.");
-  await page.locator("#crmTable .edit-lead").first().click();
-  await expect(page.locator("#feedbackHistory")).toContainText("Requested a proposal next week.");
-  await expect(page.locator("#feedbackHistory")).toContainText("sales@example.com");
+  expect(savedChanges.feedback).toBe("Requested a proposal next week.");
 });
 
 test("hides overnight mode on hosted deployments and explains plain-text timeouts", async ({ page }) => {

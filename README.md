@@ -47,6 +47,8 @@ Connect a Neon Marketplace database to the Vercel project so `DATABASE_URL` is i
 
 To migrate local CRM data after deployment, run `scripts/seed-neon.mjs` with `APP_URL` set to the production URL. The script signs in as the administrator and uploads ignored local CRM data in small batches; credentials and lead data are never committed.
 
+The scoped Andrew conversation write-back API is disabled by default. For its additive Neon migration, staging checks, admin key setup, and controlled enable/rollback steps, see [docs/agent-writeback-rollout.md](docs/agent-writeback-rollout.md). Do not set `AGENT_API_ENABLED=1` until the separate Hermes integration is ready.
+
 ## Research modes and cost control
 
 - **Website crawl:** always runs and uses approximately one Firecrawl credit per crawled page.

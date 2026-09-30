@@ -15,3 +15,6 @@ test-results/
 
 .vercel
 .env*
+
+.vercel
+.env*

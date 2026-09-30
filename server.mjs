@@ -2,14 +2,17 @@ import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { extname, join, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FirecrawlClient, FirecrawlError } from "./lib/firecrawl.mjs";
 import { buildDiscoveryReport, buildReport } from "./lib/analyze.mjs";
 import { GooglePlacesClient, isLikelySouthAfricanMobileNumber, placeToLead } from "./lib/google-places.mjs";
 import { createLoginSession, currentUser, hashPassword, logout, verifyPassword } from "./lib/auth.mjs";
 import { NeonStore } from "./lib/neon-store.mjs";
-import { addLeadType, deleteCrmLead, deleteLeadType, importCrmLeads, listCrmLeads, listLeadTypes, renameLeadType, updateCrmLead } from "./lib/crm.mjs";
+import { addLeadType, deleteCrmLead, deleteLeadType, importCrmLeads, listCrmLeads, listLeadTypes, mayChangeLeadOwner, mayDeleteLead, renameLeadType, updateCrmLead } from "./lib/crm.mjs";
+import { AgentStore } from "./lib/agent-store.mjs";
+import { handleAgentAdminRequest, handleAgentRequest } from "./lib/agent-api.mjs";
+import { serveCrmStaticFile } from "./lib/crm-static-files.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const publicRoot = join(root, "public");
@@ -19,6 +22,7 @@ const crmTypesFile = join(root, "data", "crm", "types.json");
 const port = Number(process.env.PORT || 4173);
 const jobs = new Map();
 const neonStore = process.env.DATABASE_URL ? new NeonStore(process.env.DATABASE_URL) : null;
+const agentStore = neonStore ? new AgentStore(neonStore) : null;
 
 const crmListLeads = () => neonStore ? neonStore.listLeads() : listCrmLeads(crmFile);
 const crmListMapLeads = async () => neonStore
@@ -31,14 +35,6 @@ const crmDeleteType = (name) => neonStore ? neonStore.deleteType(name) : deleteL
 const crmImport = (leads, leadType, options = {}) => neonStore ? neonStore.importLeads(leads, leadType, options) : importCrmLeads(crmFile, leads, leadType, crmTypesFile, options);
 const crmUpdateLead = (id, changes) => neonStore ? neonStore.updateLead(id, changes) : updateCrmLead(crmFile, id, changes);
 const crmDeleteLead = (id) => neonStore ? neonStore.deleteLead(id) : deleteCrmLead(crmFile, id);
-
-const mimeTypes = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-};
 
 function sendJson(response, status, payload) {
   response.writeHead(status, {
@@ -433,25 +429,15 @@ async function getReport(id) {
   return JSON.parse(await readFile(join(reportsRoot, `${id}.json`), "utf8"));
 }
 
-async function serveStatic(pathname, response) {
-  const requested = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
-  const filePath = resolve(publicRoot, requested);
-  if (filePath !== publicRoot && !filePath.startsWith(`${publicRoot}${sep}`)) {
-    throw new RequestError("Not found.", 404);
-  }
-  const content = await readFile(filePath);
-  response.writeHead(200, {
-    "Content-Type": mimeTypes[extname(filePath)] || "application/octet-stream",
-    "Cache-Control": "no-cache",
-    "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' https://maps.googleapis.com https://maps.gstatic.com; img-src 'self' data: blob: https://*.googleapis.com https://*.gstatic.com https://*.google.com https://*.ggpht.com; connect-src 'self' https://maps.googleapis.com https://maps.gstatic.com; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-  });
-  response.end(content);
-}
-
 export async function handleRequest(request, response, { serveFiles = true } = {}) {
   const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
   try {
+    if (url.pathname.startsWith("/api/agent/")) {
+      if (process.env.AGENT_API_ENABLED !== "1") return sendJson(response, 503, { error: "Andrew API is disabled." });
+      if (!agentStore) return sendJson(response, 503, { error: "Andrew API requires the configured Neon database." });
+      await handleAgentRequest({ request, response, store: agentStore });
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/api/auth/login") {
       if (!neonStore) return sendJson(response, 200, { user: { id: "local-admin", email: "local@localhost", role: "admin", active: true } });
       const body = await readBody(request);
@@ -473,6 +459,11 @@ export async function handleRequest(request, response, { serveFiles = true } = {
     }
 
     const user = neonStore ? await currentUser(neonStore, request) : { id: "local-admin", email: "local@localhost", role: "admin", active: true };
+    if (url.pathname.startsWith("/api/admin/agent-keys") || /^\/api\/admin\/leads\/[^/]+\/dnc\/clear$/.test(url.pathname)) {
+      if (!agentStore) return sendJson(response, 503, { error: "Agent administration requires the configured Neon database." });
+      await handleAgentAdminRequest({ request, response, store: agentStore, user });
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/auth/me") {
       if (!user?.active) throw new RequestError("Sign in required.", 401);
       return sendJson(response, 200, { user });
@@ -489,6 +480,15 @@ export async function handleRequest(request, response, { serveFiles = true } = {
     }
 
     if (url.pathname.startsWith("/api/") && !user?.active) throw new RequestError("Sign in required.", 401);
+
+    const activityMatch = /^\/api\/crm\/leads\/([^/]+)\/activity$/.exec(url.pathname);
+    if (request.method === "GET" && activityMatch) {
+      const id = decodeURIComponent(activityMatch[1]);
+      if (!/^[a-f0-9-]{36}$/i.test(id)) throw new RequestError("Invalid lead ID.");
+      const activity = agentStore ? await agentStore.listActivity(id) : [];
+      if (activity === null) throw new RequestError("Lead not found.", 404);
+      return sendJson(response, 200, { activity });
+    }
 
     if (request.method === "GET" && url.pathname === "/api/maps/browser-config") {
       return sendJson(response, 200, { apiKey: String(process.env.GOOGLE_MAPS_BROWSER_API_KEY || "") });
@@ -610,7 +610,7 @@ export async function handleRequest(request, response, { serveFiles = true } = {
       const id = decodeURIComponent(url.pathname.slice("/api/crm/leads/".length));
       if (!/^[a-f0-9-]{36}$/i.test(id)) throw new RequestError("Invalid lead ID.");
       const changes = await readBody(request);
-      if (changes.feedbackEntry !== undefined || changes.feedback !== undefined) changes.feedbackAuthor = user.email;
+      if (!mayChangeLeadOwner(user, changes)) throw new RequestError("Only administrators can change lead ownership.", 403);
       const lead = await crmUpdateLead(id, changes);
       if (!lead) throw new RequestError("Lead not found.", 404);
       return sendJson(response, 200, lead);
@@ -619,6 +619,7 @@ export async function handleRequest(request, response, { serveFiles = true } = {
     if (request.method === "DELETE" && url.pathname.startsWith("/api/crm/leads/")) {
       const id = decodeURIComponent(url.pathname.slice("/api/crm/leads/".length));
       if (!/^[a-f0-9-]{36}$/i.test(id)) throw new RequestError("Invalid lead ID.");
+      if (!mayDeleteLead(user)) throw new RequestError("Sign in required.", 401);
       if (!await crmDeleteLead(id)) throw new RequestError("Lead not found.", 404);
       return sendJson(response, 200, { deleted: true });
     }
@@ -679,7 +680,7 @@ export async function handleRequest(request, response, { serveFiles = true } = {
 
     if (request.method !== "GET") throw new RequestError("Method not allowed.", 405);
     if (!serveFiles) throw new RequestError("Not found.", 404);
-    await serveStatic(url.pathname, response);
+    await serveCrmStaticFile(publicRoot, url.pathname, response);
   } catch (error) {
     if (error.code === "ENOENT") return sendJson(response, 404, { error: "Not found." });
     const status = error.status || 500;
