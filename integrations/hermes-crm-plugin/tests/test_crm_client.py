@@ -250,13 +250,13 @@ class LeadOperationsTests(unittest.TestCase):
         with mock.patch.object(urllib.request, "urlopen", lambda request, timeout=None: (self.requests.append((request, timeout)) or _FakeResponse(next(responses)))):
             self.assertEqual(self.client.assign_self("lead-1")["lead"]["assignedTo"], "Andrew")
             self.assertEqual(self.client.add_note("lead-1", "Call back Friday")["note"]["body"], "Call back Friday")
-            self.assertEqual(self.client.update_lead("lead-1", {"status": "Contacted", "feedback": "Asked for pricing"})["lead"]["status"], "Contacted")
+            self.assertEqual(self.client.update_lead("lead-1", {"status": "Contacted", "feedback": "Asked for pricing", "comments": "Send the service list tomorrow"})["lead"]["status"], "Contacted")
         self.assertEqual([r.get_method() for r, _ in self.requests], ["POST", "POST", "PATCH"])
         self.assertTrue(self.requests[0][0].full_url.endswith("/api/agent/leads/lead-1/assign-self"))
         self.assertTrue(self.requests[1][0].full_url.endswith("/api/agent/leads/lead-1/notes"))
         self.assertTrue(self.requests[2][0].full_url.endswith("/api/agent/leads/lead-1"))
         self.assertEqual(json.loads(self.requests[1][0].data), {"body": "Call back Friday"})
-        self.assertEqual(json.loads(self.requests[2][0].data), {"status": "Contacted", "feedback": "Asked for pricing"})
+        self.assertEqual(json.loads(self.requests[2][0].data), {"status": "Contacted", "feedback": "Asked for pricing", "comments": "Send the service list tomorrow"})
 
     def test_update_rejects_fields_outside_the_crm_allow_list_before_network(self):
         with mock.patch.object(urllib.request, "urlopen", self._respond({})):

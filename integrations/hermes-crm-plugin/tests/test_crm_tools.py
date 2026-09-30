@@ -93,15 +93,14 @@ class CRMLeadToolTests(unittest.TestCase):
         self.assertEqual(result["note"]["body"], "Call back Friday")
         self.assertEqual(self.client.calls, [("add_note", "lead-1", "Call back Friday")])
 
-    def test_update_lead_accepts_crm_fields_and_rejects_assignment_or_comments(self):
-        fields = {"status": "Contacted", "feedback": "Asked for pricing"}
+    def test_update_lead_accepts_comments_and_rejects_assignment(self):
+        fields = {"status": "Contacted", "feedback": "Asked for pricing", "comments": "Send the service list tomorrow"}
         with mock.patch.object(tools, "_build_client", return_value=self.client):
             result = result_json(tools.crm_update_lead({"lead_id": "lead-1", "fields": fields}))
             forbidden = result_json(tools.crm_update_lead({"lead_id": "lead-1", "fields": {"assignedTo": "Andrew"}}))
-            unsupported = result_json(tools.crm_update_lead({"lead_id": "lead-1", "fields": {"comments": "note"}}))
         self.assertEqual(result["lead"]["feedback"], "Asked for pricing")
+        self.assertEqual(result["lead"]["comments"], "Send the service list tomorrow")
         self.assertIn("Unsupported", forbidden["error"])
-        self.assertIn("Unsupported", unsupported["error"])
         self.assertEqual(self.client.calls, [("update_lead", "lead-1", fields)])
 
     def test_unexpected_client_errors_are_json_safe_and_do_not_echo_secrets_or_bodies(self):

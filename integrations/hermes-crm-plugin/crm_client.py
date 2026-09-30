@@ -35,6 +35,7 @@ _UPDATE_ALLOWED_FIELDS = frozenset(
     {
         "status",
         "feedback",
+        "comments",
         "nextFollowUpAt",
         "lastContactedAt",
         "doNotContact",

@@ -86,10 +86,10 @@
 
 **Interfaces:** CRMClient(base_url,api_key,timeout_seconds=15); search_leads(query,lead_type,status,limit,cursor), get_lead(lead_id), assign_self(lead_id), list_conversations(lead_id), add_note(lead_id,body), update_lead(lead_id,fields), submit_conversation(lead_id,segment_id,messages,summary,idempotency_key). Hermes tools expose those operations as crm_search_leads, crm_get_lead, crm_assign_self, crm_get_conversations, crm_add_note, crm_update_lead, crm_pending_syncs and crm_commit_sync.
 
-- [ ] Test bearer header, JSON/query/path encoding, lead search/detail, assignment, conversations, notes, limited updates, timeout, 4xx handling, 5xx/network retry, DNC restrictions, and secret-free errors.
+- [ ] Test bearer header, JSON/query/path encoding, lead search/detail, assignment, conversations, notes, limited updates including CRM comments, timeout, 4xx handling, 5xx/network retry, DNC restrictions, and secret-free errors.
 - [ ] Run python -m unittest integrations.hermes-crm-plugin.tests.test_crm_client; expected fail.
 - [ ] Implement standard-library urllib client reading CRM_API_BASE_URL and CRM_AGENT_API_KEY from Hermes profile environment. Expose only the scoped CRM routes; reject update fields outside the API allow-list before network calls. Do not print keys or transcript bodies.
-- [ ] Register schemas and handlers for bounded lead search, one-lead read, self-assignment, owned conversation history, append-only note, and limited field updates. Preserve ambiguous-phone results and require human resolution rather than choosing a candidate.
+- [ ] Register schemas and handlers for bounded lead search, one-lead read, self-assignment, owned conversation history, append-only note, and limited field updates including `comments`. Preserve ambiguous-phone results and require human resolution rather than choosing a candidate.
 - [ ] Test timeout retains queued data, replay after success returns same remote ID, and transient failure retries idempotently.
 - [ ] Implement tool flow: pending tool returns exact messages; LLM generates separate summary; commit submits payload and marks synced only after 2xx. Auth/validation 4xx stays visible for operator action; transient errors use exponential backoff until confirmed.
 - [ ] Run client and retry tests; expected pass.

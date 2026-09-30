@@ -35,6 +35,17 @@ test("limited updates reject ownership changes and DNC clearing", async () => {
   await assert.rejects(store.updateLeadLimited(leadId, { doNotContact: false }), { code: "DNC_CLEAR_FORBIDDEN" });
 });
 
+test("limited Andrew updates allow CRM comments while preserving the assigned lead", async () => {
+  const { store, calls } = fakeStore((query) => {
+    if (query.startsWith("SELECT data->>'assignedTo'")) return [{ owner: "Andrew", do_not_contact: false }];
+    if (query.includes("UPDATE crm_leads")) return [{ data: { id: leadId, assignedTo: "Andrew", comments: "Call back Friday" }, do_not_contact: false }];
+    return [];
+  });
+  const lead = await store.updateLeadLimited(leadId, { comments: "Call back Friday" });
+  assert.equal(lead.comments, "Call back Friday");
+  assert.equal(JSON.parse(calls[1].params[1]).comments, "Call back Friday");
+});
+
 test("activity is chronological by message timestamp, keeps ties stable, and follows transcript with summary", async () => {
   const { store } = fakeStore((query) => {
     if (query.includes("FROM crm_leads WHERE id")) return [{ data: { id: leadId }, do_not_contact: false }];
@@ -204,3 +215,4 @@ test("reusing a conversation segment with a different idempotency key returns 40
   });
   await assert.rejects(store.appendConversation(input), { code: "IDEMPOTENCY_CONFLICT", status: 409 });
 });
+

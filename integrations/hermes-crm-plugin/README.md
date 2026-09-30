@@ -26,8 +26,9 @@ over HTTPS with a bearer key.
    explicit ambiguous-phone results), `crm_get_lead` (contact and business
    details), `crm_assign_self` (claim an unassigned lead),
    `crm_get_conversations` (read Andrew-owned history), `crm_add_note`
-   (append an internal note), and `crm_update_lead` (update approved follow-up
-   fields). All use the scoped CRM API and enforce its ownership checks.
+   (append an internal note), and `crm_update_lead` (update status, feedback,
+   internal comments, follow-up dates, and allowed DNC details). All use the
+   scoped CRM API and enforce its ownership checks.
 3. `crm_commit_sync` submits the segment to the CRM with an idempotency key
    equal to the segment ID. It marks the segment `synced` only on a 2xx
    response. Transient failures (5xx, network, timeout) are queued for retry

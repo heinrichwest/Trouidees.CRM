@@ -71,11 +71,13 @@ test("Andrew API searches contact details, claims a lead, and writes CRM follow-
     const update = await call("PATCH", `/api/agent/leads/${leadId}`, {
       status: "Contacted",
       feedback: "Asked for the service list by email.",
+      comments: "Andrew: send the service list tomorrow.",
       nextFollowUpAt: "2026-10-07",
       lastContactedAt: "2026-09-30",
     });
     assert.equal(update.status, 200);
     assert.equal(update.body.lead.feedback, "Asked for the service list by email.");
+    assert.equal(update.body.lead.comments, "Andrew: send the service list tomorrow.");
     assert.equal(update.body.lead.status, "Contacted");
 
     const note = await call("POST", `/api/agent/leads/${leadId}/notes`, { body: "Follow up next week." });

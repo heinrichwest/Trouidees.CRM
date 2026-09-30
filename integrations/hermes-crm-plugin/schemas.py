@@ -140,7 +140,7 @@ CRM_UPDATE_LEAD_SCHEMA = {
     "name": "crm_update_lead",
     "description": (
         "Update supported lead fields for a lead assigned to Andrew. Allowed fields are "
-        "status, feedback, nextFollowUpAt, lastContactedAt, doNotContact, dncReason, "
+        "status, feedback, comments, nextFollowUpAt, lastContactedAt, doNotContact, dncReason, "
         "and dncWording. Andrew may set doNotContact true but cannot clear it."
     ),
     "parameters": {"type": "object", "properties": {
@@ -148,6 +148,7 @@ CRM_UPDATE_LEAD_SCHEMA = {
         "fields": {"type": "object", "properties": {
             "status": {"type": "string"},
             "feedback": {"type": "string"},
+            "comments": {"type": "string", "description": "Internal comments or next action, up to 5000 characters."},
             "nextFollowUpAt": {"type": "string"},
             "lastContactedAt": {"type": "string"},
             "doNotContact": {"type": "boolean"},

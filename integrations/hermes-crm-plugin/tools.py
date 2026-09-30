@@ -202,6 +202,7 @@ def crm_commit_sync(args: dict, client: Optional[CRMClient] = None, outbox: Opti
 _UPDATE_FIELDS = {
     "status": 150,
     "feedback": 5000,
+    "comments": 5000,
     "nextFollowUpAt": 150,
     "lastContactedAt": 150,
     "doNotContact": None,

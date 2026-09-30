@@ -33,8 +33,8 @@ from each other.
   conflicts because another person owns it, stop and do not read or write that
   lead. Leads already assigned to Andrew may be used directly.
 - Use `crm_update_lead` only for current, supported follow-up facts: `status`,
-  `feedback`, `nextFollowUpAt`, `lastContactedAt`, and DNC details when the
-  contact asks not to be contacted. Do not set ownership, edit comments, or
+  `feedback`, `comments`, `nextFollowUpAt`, `lastContactedAt`, and DNC details when the
+  contact asks not to be contacted. Do not set ownership or
   clear DNC. Report unavailable or uncertain values instead of inventing them.
 - Use `crm_add_note` for an internal note that a CRM teammate should see.
   Notes are append-only and distinct from the WhatsApp transcript and summary.
