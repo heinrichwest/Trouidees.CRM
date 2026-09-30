@@ -211,5 +211,166 @@ class SubmitConversationTests(unittest.TestCase):
                 self.assertNotIn("sk-top-secret", str(exc))
 
 
+class LeadOperationsTests(unittest.TestCase):
+    def setUp(self):
+        self.client = CRMClient("https://crm.example.com", "agent-secret", timeout_seconds=4)
+        self.requests = []
+
+    def _respond(self, response):
+        def fake_urlopen(request, timeout=None):
+            self.requests.append((request, timeout))
+            return _FakeResponse(response)
+        return fake_urlopen
+
+    def test_search_leads_uses_bounded_query_and_returns_contact_details(self):
+        expected = {"leads": [{"id": "lead-1", "name": "Example", "phone": "+27821234567", "email": "a@example.test"}], "nextCursor": None}
+        with mock.patch.object(urllib.request, "urlopen", self._respond(expected)):
+            result = self.client.search_leads(query="082 123 4567", lead_type="Tutor", status="New", limit=10, cursor="0")
+        request, timeout = self.requests[0]
+        self.assertEqual(result, expected)
+        self.assertTrue(request.full_url.endswith("/api/agent/leads?q=082+123+4567&leadType=Tutor&status=New&limit=10&cursor=0"))
+        self.assertEqual(request.get_method(), "GET")
+        self.assertEqual(request.get_header("Authorization"), "Bearer agent-secret")
+        self.assertEqual(timeout, 4)
+
+    def test_get_lead_encodes_id_and_returns_single_lead_dto(self):
+        expected = {"lead": {"id": "lead-1", "phone": "+27821234567", "assignedTo": "Andrew"}}
+        with mock.patch.object(urllib.request, "urlopen", self._respond(expected)):
+            result = self.client.get_lead("lead/1")
+        request, _ = self.requests[0]
+        self.assertEqual(result, expected)
+        self.assertTrue(request.full_url.endswith("/api/agent/leads/lead%2F1"))
+
+    def test_assign_note_and_limited_update_use_the_approved_endpoints(self):
+        responses = iter([
+            {"lead": {"id": "lead-1", "assignedTo": "Andrew"}},
+            {"note": {"id": "note-1", "body": "Call back Friday"}},
+            {"lead": {"id": "lead-1", "status": "Contacted", "feedback": "Asked for pricing"}},
+        ])
+        with mock.patch.object(urllib.request, "urlopen", lambda request, timeout=None: (self.requests.append((request, timeout)) or _FakeResponse(next(responses)))):
+            self.assertEqual(self.client.assign_self("lead-1")["lead"]["assignedTo"], "Andrew")
+            self.assertEqual(self.client.add_note("lead-1", "Call back Friday")["note"]["body"], "Call back Friday")
+            self.assertEqual(self.client.update_lead("lead-1", {"status": "Contacted", "feedback": "Asked for pricing"})["lead"]["status"], "Contacted")
+        self.assertEqual([r.get_method() for r, _ in self.requests], ["POST", "POST", "PATCH"])
+        self.assertTrue(self.requests[0][0].full_url.endswith("/api/agent/leads/lead-1/assign-self"))
+        self.assertTrue(self.requests[1][0].full_url.endswith("/api/agent/leads/lead-1/notes"))
+        self.assertTrue(self.requests[2][0].full_url.endswith("/api/agent/leads/lead-1"))
+        self.assertEqual(json.loads(self.requests[1][0].data), {"body": "Call back Friday"})
+        self.assertEqual(json.loads(self.requests[2][0].data), {"status": "Contacted", "feedback": "Asked for pricing"})
+
+    def test_update_rejects_fields_outside_the_crm_allow_list_before_network(self):
+        with mock.patch.object(urllib.request, "urlopen", self._respond({})):
+            with self.assertRaises(ValueError):
+                self.client.update_lead("lead-1", {"assignedTo": "Someone else"})
+        self.assertEqual(self.requests, [])
+
+    def test_update_rejects_any_owner_or_assignment_field_before_network(self):
+        for forbidden_patch in (
+            {"owner": "Andrew"},
+            {"ownerId": "andrew-1"},
+            {"assignedTo": "Andrew"},
+        ):
+            with mock.patch.object(urllib.request, "urlopen", self._respond({})):
+                with self.assertRaises(ValueError):
+                    self.client.update_lead("lead-1", forbidden_patch)
+        self.assertEqual(self.requests, [])
+
+    def test_update_rejects_doNotContact_false_even_though_the_key_itself_is_allowed(self):
+        """lib/agent-store.mjs: DNC_CLEAR_FORBIDDEN — only a human admin may clear
+        DNC. doNotContact is otherwise an allowed field, so this must be rejected
+        by value, not just by key."""
+        with mock.patch.object(urllib.request, "urlopen", self._respond({})):
+            with self.assertRaises(ValueError):
+                self.client.update_lead("lead-1", {"doNotContact": False})
+        self.assertEqual(self.requests, [])
+
+    def test_update_allows_setting_dnc_true_with_reason_and_wording(self):
+        expected = {"lead": {"id": "lead-1", "doNotContact": True}}
+        with mock.patch.object(urllib.request, "urlopen", self._respond(expected)):
+            result = self.client.update_lead(
+                "lead-1",
+                {
+                    "doNotContact": True,
+                    "dncReason": "Contact asked not to be called again",
+                    "dncWording": "Please stop contacting me",
+                },
+            )
+        self.assertEqual(result, expected)
+        request, _ = self.requests[0]
+        self.assertEqual(request.get_method(), "PATCH")
+        self.assertEqual(
+            json.loads(request.data),
+            {
+                "doNotContact": True,
+                "dncReason": "Contact asked not to be called again",
+                "dncWording": "Please stop contacting me",
+            },
+        )
+
+    def test_update_allows_follow_up_and_contact_timestamp_fields(self):
+        expected = {"lead": {"id": "lead-1", "nextFollowUpAt": "2026-10-01"}}
+        with mock.patch.object(urllib.request, "urlopen", self._respond(expected)):
+            result = self.client.update_lead(
+                "lead-1",
+                {"nextFollowUpAt": "2026-10-01", "lastContactedAt": "2026-09-30"},
+            )
+        self.assertEqual(result, expected)
+
+    def test_search_leads_percent_encodes_reserved_characters_in_query(self):
+        expected = {"leads": [], "nextCursor": None}
+        with mock.patch.object(urllib.request, "urlopen", self._respond(expected)):
+            self.client.search_leads(query="Smith & Sons / Co?")
+        request, _ = self.requests[0]
+        self.assertTrue(
+            request.full_url.endswith("/api/agent/leads?q=Smith+%26+Sons+%2F+Co%3F")
+        )
+
+    def test_search_leads_omits_absent_optional_filters(self):
+        expected = {"leads": [], "nextCursor": None}
+        with mock.patch.object(urllib.request, "urlopen", self._respond(expected)):
+            self.client.search_leads(query="Jane")
+        request, _ = self.requests[0]
+        self.assertTrue(request.full_url.endswith("/api/agent/leads?q=Jane"))
+
+    def test_search_leads_401_raises_auth_error(self):
+        def fake_urlopen(request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {}, io.BytesIO(b""))
+
+        with mock.patch.object(urllib.request, "urlopen", fake_urlopen):
+            with self.assertRaises(CRMAuthError):
+                self.client.search_leads(query="Jane")
+
+    def test_list_conversations_encodes_id_bearer_auth_and_returns_json(self):
+        expected = {
+            "conversations": [
+                {"segmentId": "seg-1", "channel": "whatsapp", "summary": "Asked about pricing."}
+            ]
+        }
+        with mock.patch.object(urllib.request, "urlopen", self._respond(expected)):
+            result = self.client.list_conversations("lead/1")
+        request, _ = self.requests[0]
+        self.assertEqual(result, expected)
+        self.assertEqual(request.get_method(), "GET")
+        self.assertEqual(request.get_header("Authorization"), "Bearer agent-secret")
+        self.assertTrue(request.full_url.endswith("/api/agent/leads/lead%2F1/conversations"))
+
+    def test_list_conversations_401_raises_auth_error(self):
+        def fake_urlopen(request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {}, io.BytesIO(b""))
+
+        with mock.patch.object(urllib.request, "urlopen", fake_urlopen):
+            with self.assertRaises(CRMAuthError):
+                self.client.list_conversations("lead-1")
+
+    def test_list_conversations_404_raises_validation_error(self):
+        def fake_urlopen(request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, io.BytesIO(b""))
+
+        with mock.patch.object(urllib.request, "urlopen", fake_urlopen):
+            with self.assertRaises(CRMValidationError):
+                self.client.list_conversations("lead-1")
+
+
 if __name__ == "__main__":
     unittest.main()
+

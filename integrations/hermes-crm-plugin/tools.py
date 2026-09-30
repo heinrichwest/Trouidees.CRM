@@ -189,6 +189,138 @@ def crm_commit_sync(args: dict, client: Optional[CRMClient] = None, outbox: Opti
         box.mark_retry(segment_id, str(exc))
         return json.dumps({"committed": False, "error": str(exc), "retryable": True})
 
-    conversation_id = response.get("conversationId") or response.get("id") or segment_id
+    conversation_id = (
+        response.get("conversationId")
+        or response.get("id")
+        or (response.get("conversation") or {}).get("id")
+        or segment_id
+    )
     box.mark_synced(segment_id, conversation_id)
     return json.dumps({"committed": True, "conversation_id": conversation_id})
+
+
+_UPDATE_FIELDS = {
+    "status": 150,
+    "feedback": 5000,
+    "nextFollowUpAt": 150,
+    "lastContactedAt": 150,
+    "doNotContact": None,
+    "dncReason": 2000,
+    "dncWording": 5000,
+}
+
+
+def _tool_json(value: dict) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _tool_error(exc: Exception) -> str:
+    # CRMClient errors are constructed from status/reason only and never include
+    # request headers or bodies. Do not echo arbitrary exception text: it can
+    # contain credentials or customer message content from an unexpected layer.
+    if isinstance(exc, CRMClientError):
+        return _tool_json({"error": str(exc)})
+    return _tool_json({"error": "CRM request failed."})
+
+
+def _required_text(args: dict, key: str) -> Optional[str]:
+    value = args.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def crm_search_leads(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    query = args.get("query", "")
+    lead_type = args.get("lead_type")
+    status = args.get("status")
+    limit = args.get("limit", 25)
+    cursor = args.get("cursor", "0")
+    if not isinstance(query, str) or len(query) > 200:
+        return _tool_json({"error": "query must be a string of at most 200 characters."})
+    if any(value is not None and (not isinstance(value, str) or len(value) > 100) for value in (lead_type, status)):
+        return _tool_json({"error": "lead_type and status must be strings of at most 100 characters."})
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+        return _tool_json({"error": "limit must be an integer from 1 to 100."})
+    if not isinstance(cursor, str) or not cursor.isdigit() or len(cursor) > 7:
+        return _tool_json({"error": "cursor must be a numeric pagination cursor."})
+    try:
+        return _tool_json((client or _build_client()).search_leads(
+            query=query, lead_type=lead_type, status=status, limit=limit, cursor=cursor,
+        ))
+    except Exception as exc:
+        return _tool_error(exc)
+
+
+def crm_get_lead(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    lead_id = _required_text(args, "lead_id")
+    if not lead_id:
+        return _tool_json({"error": "lead_id is required."})
+    try:
+        return _tool_json((client or _build_client()).get_lead(lead_id))
+    except Exception as exc:
+        return _tool_error(exc)
+
+
+def crm_get_conversations(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    lead_id = _required_text(args, "lead_id")
+    if not lead_id:
+        return _tool_json({"error": "lead_id is required."})
+    try:
+        return _tool_json((client or _build_client()).list_conversations(lead_id))
+    except Exception as exc:
+        return _tool_error(exc)
+
+
+def crm_assign_self(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    lead_id = _required_text(args, "lead_id")
+    if not lead_id:
+        return _tool_json({"error": "lead_id is required."})
+    try:
+        return _tool_json((client or _build_client()).assign_self(lead_id))
+    except Exception as exc:
+        return _tool_error(exc)
+
+
+def crm_add_note(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    lead_id = _required_text(args, "lead_id")
+    body = args.get("body")
+    if not lead_id:
+        return _tool_json({"error": "lead_id is required."})
+    if not isinstance(body, str) or not body.strip() or len(body) > 10_000:
+        return _tool_json({"error": "body is required and must be at most 10000 characters."})
+    try:
+        return _tool_json((client or _build_client()).add_note(lead_id, body))
+    except Exception as exc:
+        return _tool_error(exc)
+
+
+def crm_update_lead(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    lead_id = _required_text(args, "lead_id")
+    fields = args.get("fields")
+    if not lead_id:
+        return _tool_json({"error": "lead_id is required."})
+    if not isinstance(fields, dict) or not fields:
+        return _tool_json({"error": "fields must be a non-empty object."})
+    if any(key not in _UPDATE_FIELDS for key in fields):
+        return _tool_json({"error": "Unsupported lead update field."})
+    for key, maximum in _UPDATE_FIELDS.items():
+        if key not in fields:
+            continue
+        value = fields[key]
+        if maximum is None:
+            if not isinstance(value, bool):
+                return _tool_json({"error": "doNotContact must be a boolean."})
+            if value is False:
+                return _tool_json({"error": "Andrew cannot clear do-not-contact."})
+        elif not isinstance(value, str) or len(value) > maximum:
+            return _tool_json({"error": f"{key} must be a string of at most {maximum} characters."})
+    try:
+        return _tool_json((client or _build_client()).update_lead(lead_id, fields))
+    except Exception as exc:
+        return _tool_error(exc)
+

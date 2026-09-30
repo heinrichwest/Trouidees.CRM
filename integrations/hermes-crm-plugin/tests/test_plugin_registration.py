@@ -67,7 +67,11 @@ class PluginRegistrationTests(unittest.TestCase):
         self.plugin.register(self.ctx)
 
     def test_registers_exact_tool_names(self):
-        self.assertEqual(set(self.ctx.tools.keys()), {"crm_pending_syncs", "crm_queue_session", "crm_commit_sync"})
+        self.assertEqual(set(self.ctx.tools.keys()), {
+            "crm_pending_syncs", "crm_queue_session", "crm_commit_sync",
+            "crm_search_leads", "crm_get_lead", "crm_assign_self",
+            "crm_add_note", "crm_update_lead", "crm_get_conversations",
+        })
 
     def test_registers_on_session_finalize_hook(self):
         self.assertIn("on_session_finalize", self.ctx.hooks)
@@ -120,3 +124,4 @@ class SessionFinalizeHookTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

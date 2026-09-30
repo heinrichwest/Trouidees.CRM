@@ -2,8 +2,9 @@ manifest_version: 1
 name: trouidees-crm-writeback
 version: 0.1.0
 description: >-
-  Durable write-back of completed WhatsApp exchanges (verbatim transcript plus a
-  separate summary) from Hermes to the Trouidees CRM.
+  Browse and update Andrew-owned Trouidees CRM leads, add internal notes, and
+  durably write completed WhatsApp exchanges as verbatim transcripts plus
+  separate summaries.
 author: Trouidees
 homepage: https://github.com/Trouidees/crm
 license: UNLICENSED
@@ -16,6 +17,12 @@ provides_tools:
   - crm_pending_syncs
   - crm_queue_session
   - crm_commit_sync
+  - crm_search_leads
+  - crm_get_lead
+  - crm_assign_self
+  - crm_get_conversations
+  - crm_add_note
+  - crm_update_lead
 
 provides_hooks:
   - on_session_finalize
@@ -28,9 +35,12 @@ requires_env:
     secret: false
   - name: CRM_AGENT_API_KEY
     description: >-
-      Bearer API key issued to Andrew's agent identity by a CRM admin. Scoped to
-      conversation write-back only. Store in Hermes's secret configuration, never
-      in prompts, skills, or logs.
+      Bearer API key issued to Andrew's agent identity by a CRM admin. It needs
+      leads:search, leads:read, leads:assign:self, conversations:read,
+      conversations:write, notes:write, and leads:update:limited scopes. Add
+      dnc:set if Andrew must record do-not-contact requests. Store in Hermes's
+      secret configuration, never in prompts, skills, or logs.
     secret: true
 
 python_dependencies: []
+

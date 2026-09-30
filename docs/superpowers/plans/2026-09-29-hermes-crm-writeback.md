@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax.
 
-**Goal:** Install a Hermes plugin and instructions that preserve every completed WhatsApp exchange verbatim, generate a separate summary, and durably synchronize both to CRM.
+**Goal:** Install a Hermes plugin that lets Andrew browse and manage eligible CRM leads and also preserves every completed WhatsApp exchange verbatim, generates a separate summary, and durably synchronizes both to CRM.
 
-**Architecture:** A native Hermes plugin exports session history through the supported Hermes session export command, filters contact-visible WhatsApp messages, and stores a stable segment payload in a local SQLite outbox. A finalize hook queues closed sessions; an idle scanner queues sessions after 24 hours; an LLM-driven Hermes task summarizes pending transcripts and submits them to the CRM API. A Hermes skill instructs automatic post-conversation processing.
+**Architecture:** A native Hermes plugin calls scoped CRM API routes for lead search/read, self-assignment, allowed updates, notes, and conversation history. It also exports session history through the supported Hermes session export command, filters contact-visible WhatsApp messages, and stores a stable segment payload in a local SQLite outbox. A finalize hook queues closed sessions; an idle scanner queues sessions after 24 hours; an LLM-driven Hermes task summarizes pending transcripts and submits them to the CRM API. A Hermes skill instructs safe lead handling and automatic post-conversation processing.
 
 **Tech Stack:** Hermes native Python plugin, Hermes session export CLI, Python standard library, SQLite, urllib, Hermes skill Markdown, unittest.
 
@@ -35,7 +35,7 @@
 - integrations/hermes-crm-plugin/plugin.yaml, __init__.py, schemas.py: plugin manifest and tool/hook registration.
 - session_export.py: supported export invocation and visible-message filtering.
 - outbox.py, idle_scan.py, scripts/queue_idle_sessions.py: SQLite persistence and 24-hour scanner.
-- crm_client.py, tools.py: CRM API calls and Hermes summary/commit tools.
+- crm_client.py, tools.py, schemas.py: scoped CRM API calls and Hermes lead-management and transcript tools.
 - skills/crm-writeback/SKILL.md: agent operating instructions.
 - tests/: plugin, extraction, segmentation, retry and instruction checks.
 - README.md: installation, secret configuration, cron, monitoring, recovery.
@@ -84,11 +84,12 @@
 
 **Files:** create crm_client.py, tests/test_crm_client.py, tests/test_sync_retry.py; modify tools.py and schemas.py.
 
-**Interfaces:** CRMClient(base_url,api_key,timeout_seconds=15); submit_conversation(lead_id,segment_id,messages,summary,idempotency_key). Tools crm_pending_syncs returns original messages; crm_commit_sync(segment_id,lead_id,summary) submits them to POST /api/agent/leads/:id/conversations.
+**Interfaces:** CRMClient(base_url,api_key,timeout_seconds=15); search_leads(query,lead_type,status,limit,cursor), get_lead(lead_id), assign_self(lead_id), list_conversations(lead_id), add_note(lead_id,body), update_lead(lead_id,fields), submit_conversation(lead_id,segment_id,messages,summary,idempotency_key). Hermes tools expose those operations as crm_search_leads, crm_get_lead, crm_assign_self, crm_get_conversations, crm_add_note, crm_update_lead, crm_pending_syncs and crm_commit_sync.
 
-- [ ] Test bearer header, JSON shape, timeout, 4xx handling, 5xx/network retry, and secret-free errors.
+- [ ] Test bearer header, JSON/query/path encoding, lead search/detail, assignment, conversations, notes, limited updates, timeout, 4xx handling, 5xx/network retry, DNC restrictions, and secret-free errors.
 - [ ] Run python -m unittest integrations.hermes-crm-plugin.tests.test_crm_client; expected fail.
-- [ ] Implement standard-library urllib client reading CRM_API_BASE_URL and CRM_AGENT_API_KEY from Hermes profile environment. Do not print keys or transcript bodies.
+- [ ] Implement standard-library urllib client reading CRM_API_BASE_URL and CRM_AGENT_API_KEY from Hermes profile environment. Expose only the scoped CRM routes; reject update fields outside the API allow-list before network calls. Do not print keys or transcript bodies.
+- [ ] Register schemas and handlers for bounded lead search, one-lead read, self-assignment, owned conversation history, append-only note, and limited field updates. Preserve ambiguous-phone results and require human resolution rather than choosing a candidate.
 - [ ] Test timeout retains queued data, replay after success returns same remote ID, and transient failure retries idempotently.
 - [ ] Implement tool flow: pending tool returns exact messages; LLM generates separate summary; commit submits payload and marks synced only after 2xx. Auth/validation 4xx stays visible for operator action; transient errors use exponential backoff until confirmed.
 - [ ] Run client and retry tests; expected pass.

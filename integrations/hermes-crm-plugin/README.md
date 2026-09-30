@@ -1,7 +1,9 @@
-# Trouidees CRM Write-Back Plugin for Hermes
+# Trouidees CRM Agent Plugin for Hermes
 
-Preserves every completed WhatsApp exchange verbatim, generates a separate
-factual summary, and durably synchronizes both to the Trouidees CRM at
+Lets Andrew browse eligible CRM leads, read contact details, assign unassigned
+leads to himself, update approved follow-up fields, add internal notes, and
+preserves every completed WhatsApp exchange verbatim with a separate factual
+summary. Conversation records are synchronized to the Trouidees CRM at
 `POST /api/agent/leads/:id/conversations`. See
 `docs/superpowers/specs/2026-09-29-andrew-crm-writeback.md` for the full
 design this implements.
@@ -20,6 +22,12 @@ over HTTPS with a bearer key.
 2. The `crm-writeback` skill instructs the agent to call `crm_pending_syncs`
    after each conversation, write a separate factual summary, and call
    `crm_commit_sync(segment_id, lead_id, summary)` for leads it owns.
+   The other CRM tools are `crm_search_leads` (bounded browse/search with
+   explicit ambiguous-phone results), `crm_get_lead` (contact and business
+   details), `crm_assign_self` (claim an unassigned lead),
+   `crm_get_conversations` (read Andrew-owned history), `crm_add_note`
+   (append an internal note), and `crm_update_lead` (update approved follow-up
+   fields). All use the scoped CRM API and enforce its ownership checks.
 3. `crm_commit_sync` submits the segment to the CRM with an idempotency key
    equal to the segment ID. It marks the segment `synced` only on a 2xx
    response. Transient failures (5xx, network, timeout) are queued for retry
@@ -86,7 +94,7 @@ turned out to be wrong and were corrected in code:
   unit tests (which load modules flat, since the directory name
   `hermes-crm-plugin` contains a hyphen and can't be a dotted package). This
   fallback was confirmed against the actual installed CLI: `hermes plugins
-  doctor integrations/hermes-crm-plugin --ci` reports `OK` with 3 tools and
+  doctor integrations/hermes-crm-plugin --ci` reports `OK` with the plugin tools and
   1 hook registered.
 - A bulk `hermes sessions export <file>` record's session identifier field
   is `id`, not `session_id` (`session_id` does not exist on the record at
@@ -163,7 +171,7 @@ skill text, shell history, or committed files:
 | Variable | Secret | Purpose |
 |---|---|---|
 | `CRM_API_BASE_URL` | No | Base URL of the CRM agent API, e.g. `https://crm.example.com` (no trailing slash). |
-| `CRM_AGENT_API_KEY` | Yes | Bearer key for Andrew's agent identity, scoped to conversation write-back. Obtained from a CRM admin via `POST /api/admin/agent-keys` (see the CRM repo's rollout docs) — the secret is shown once at creation. |
+| `CRM_AGENT_API_KEY` | Yes | Bearer key for Andrew's agent identity. It needs `leads:search`, `leads:read`, `leads:assign:self`, `conversations:read`, `conversations:write`, `notes:write`, and `leads:update:limited`; add `dnc:set` if Andrew should record DNC requests. Obtained from an admin via `POST /api/admin/agent-keys`; the secret is shown once at creation. |
 | `CRM_API_TIMEOUT_SECONDS` | No | Optional. Defaults to `15`. |
 
 This plugin never reads any Neon/database credential; it only ever talks to
@@ -294,3 +302,4 @@ python -m unittest discover -s integrations/hermes-crm-plugin/tests
 be used instead of a dotted module path like
 `python -m unittest integrations.hermes-crm-plugin.tests...`, which is not
 valid Python syntax.)
+

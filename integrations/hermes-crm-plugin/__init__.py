@@ -61,8 +61,23 @@ def register(ctx) -> None:
         schema=schemas.CRM_COMMIT_SYNC_SCHEMA,
         handler=tools.crm_commit_sync,
     )
+    for schema_name, schema_attr, handler_name in (
+        ("crm_search_leads", "CRM_SEARCH_LEADS_SCHEMA", "crm_search_leads"),
+        ("crm_get_lead", "CRM_GET_LEAD_SCHEMA", "crm_get_lead"),
+        ("crm_get_conversations", "CRM_GET_CONVERSATIONS_SCHEMA", "crm_get_conversations"),
+        ("crm_assign_self", "CRM_ASSIGN_SELF_SCHEMA", "crm_assign_self"),
+        ("crm_add_note", "CRM_ADD_NOTE_SCHEMA", "crm_add_note"),
+        ("crm_update_lead", "CRM_UPDATE_LEAD_SCHEMA", "crm_update_lead"),
+    ):
+        ctx.register_tool(
+            name=schema_name,
+            toolset="crm_writeback",
+            schema=getattr(schemas, schema_attr),
+            handler=getattr(tools, handler_name),
+        )
     ctx.register_hook("on_session_finalize", on_session_finalize)
 
     skill_path = os.path.join(os.path.dirname(__file__), "skills", "crm-writeback", "SKILL.md")
     if hasattr(ctx, "register_skill"):
         ctx.register_skill("crm-writeback", skill_path)
+

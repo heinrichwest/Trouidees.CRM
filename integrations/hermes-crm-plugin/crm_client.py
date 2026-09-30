@@ -23,8 +23,25 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Optional
+
+# lib/agent-store.mjs's updateLeadLimited allow-list, mirrored here so a
+# disallowed or DNC-clearing field is rejected before any network call, not
+# just by the CRM's own 400. doNotContact is a permitted key but agents may
+# only ever set it true (lib/agent-api.mjs: "Andrew cannot clear DNC").
+_UPDATE_ALLOWED_FIELDS = frozenset(
+    {
+        "status",
+        "feedback",
+        "nextFollowUpAt",
+        "lastContactedAt",
+        "doNotContact",
+        "dncReason",
+        "dncWording",
+    }
+)
 
 # Internal direction -> exact CRM wire value. The extractor only ever
 # produces these two internal values (session_export.extract_whatsapp_messages),
@@ -107,11 +124,86 @@ class CRMClient:
         }
 
         url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}/conversations"
+        return self._request("POST", url, payload)
 
+    def search_leads(
+        self,
+        query: Optional[str] = None,
+        lead_type: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> dict:
+        """GET /api/agent/leads?q=&leadType=&status=&limit=&cursor= — a bounded
+        search; each filter is only included when given, so an all-default call
+        doesn't send an unbounded query."""
+        params = []
+        if query is not None:
+            params.append(("q", query))
+        if lead_type is not None:
+            params.append(("leadType", lead_type))
+        if status is not None:
+            params.append(("status", status))
+        if limit is not None:
+            params.append(("limit", limit))
+        if cursor is not None:
+            params.append(("cursor", cursor))
+
+        url = f"{self.base_url}/api/agent/leads"
+        if params:
+            url = f"{url}?{urllib.parse.urlencode(params)}"
+        return self._request("GET", url)
+
+    def get_lead(self, lead_id: str) -> dict:
+        if not lead_id:
+            raise ValueError("lead_id is required")
+        url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}"
+        return self._request("GET", url)
+
+    def list_conversations(self, lead_id: str) -> dict:
+        if not lead_id:
+            raise ValueError("lead_id is required")
+        url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}/conversations"
+        return self._request("GET", url)
+
+    def assign_self(self, lead_id: str) -> dict:
+        if not lead_id:
+            raise ValueError("lead_id is required")
+        url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}/assign-self"
+        return self._request("POST", url, {})
+
+    def add_note(self, lead_id: str, body: str) -> dict:
+        if not lead_id:
+            raise ValueError("lead_id is required")
+        url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}/notes"
+        return self._request("POST", url, {"body": body})
+
+    def update_lead(self, lead_id: str, patch: dict) -> dict:
+        """PATCH /api/agent/leads/:id, restricted to the fields
+        lib/agent-store.mjs's updateLeadLimited accepts. Rejects locally,
+        before any network call, both fields outside that allow-list (e.g. any
+        owner/assignment field) and doNotContact=False, since only a human
+        admin may clear DNC (lib/agent-api.mjs, lib/agent-store.mjs)."""
+        if not lead_id:
+            raise ValueError("lead_id is required")
+
+        disallowed = sorted(set(patch) - _UPDATE_ALLOWED_FIELDS)
+        if disallowed:
+            raise ValueError(f"update_lead: field(s) not allowed: {disallowed}")
+        if patch.get("doNotContact") is False:
+            raise ValueError(
+                "update_lead: doNotContact cannot be cleared by the agent; "
+                "only a human administrator may clear DNC"
+            )
+
+        url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}"
+        return self._request("PATCH", url, patch)
+
+    def _request(self, method: str, url: str, payload: Optional[dict] = None) -> dict:
         request = urllib.request.Request(
             url,
-            data=json.dumps(payload).encode("utf-8"),
-            method="POST",
+            data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+            method=method,
             headers={
                 "Authorization": f"Bearer {self._api_key}",
                 "Content-Type": "application/json",
@@ -138,6 +230,5 @@ class CRMClient:
 
 
 def _quote_path_segment(value: str) -> str:
-    import urllib.parse as _p
+    return urllib.parse.quote(str(value), safe="")
 
-    return _p.quote(str(value), safe="")

@@ -42,7 +42,7 @@ import os
 import sqlite3
 import time
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 DEFAULT_STATE_DIR = os.path.join(os.path.expanduser("~"), ".hermes", "plugins", "trouidees-crm", "state")
@@ -89,6 +89,8 @@ _BINDING_COLUMNS = (
     ("lead_id", "TEXT"),
     ("summary", "TEXT"),
 )
+_WAL_RETRY_TIMEOUT_SECONDS = 5.0
+SYNCING_STALE_AFTER_SECONDS = 10 * 60
 
 
 def _now_iso() -> str:
@@ -142,7 +144,23 @@ class Outbox:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
+        deadline = time.monotonic() + _WAL_RETRY_TIMEOUT_SECONDS
+        delay = 0.01
+        while True:
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+                break
+            except sqlite3.OperationalError as exc:
+                message = str(exc).lower()
+                if "locked" not in message and "busy" not in message:
+                    conn.close()
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    conn.close()
+                    raise
+                time.sleep(min(delay, remaining))
+                delay = min(delay * 2, 0.25)
         return conn
 
     def _init_schema(self) -> None:
@@ -187,36 +205,41 @@ class Outbox:
         if not messages:
             raise ValueError("cannot queue a segment with no messages")
 
+        with closing(self._connect()) as conn, conn:
+            return self._insert_segment(conn, session_id, messages, closed_at, reason)
+
+    def _insert_segment(
+        self, conn: sqlite3.Connection, session_id: str, messages: list,
+        closed_at: str, reason: str,
+    ) -> str:
         segment_id = compute_segment_id(session_id, messages)
         now = _now_iso()
+        existing = conn.execute(
+            "SELECT segment_id FROM segments WHERE segment_id = ?", (segment_id,)
+        ).fetchone()
+        if existing:
+            return segment_id
 
-        with closing(self._connect()) as conn, conn:
-            existing = conn.execute(
-                "SELECT segment_id FROM segments WHERE segment_id = ?", (segment_id,)
-            ).fetchone()
-            if existing:
-                return segment_id
-
-            conn.execute(
-                """
-                INSERT INTO segments (
-                    segment_id, session_id, messages_json, reason, closed_at,
-                    status, attempts, next_attempt_at, last_error,
-                    remote_conversation_id, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, ?, ?)
-                """,
-                (
-                    segment_id,
-                    session_id,
-                    json.dumps(messages, ensure_ascii=False),
-                    reason,
-                    closed_at,
-                    STATUS_PENDING,
-                    now,
-                    now,
-                ),
-            )
-            self._advance_session_boundary(conn, session_id, messages, now)
+        conn.execute(
+            """
+            INSERT INTO segments (
+                segment_id, session_id, messages_json, reason, closed_at,
+                status, attempts, next_attempt_at, last_error,
+                remote_conversation_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, ?, ?)
+            """,
+            (
+                segment_id,
+                session_id,
+                json.dumps(messages, ensure_ascii=False),
+                reason,
+                closed_at,
+                STATUS_PENDING,
+                now,
+                now,
+            ),
+        )
+        self._advance_session_boundary(conn, session_id, messages, now)
         return segment_id
 
     def get_session_boundary(self, session_id: str) -> Optional[int]:
@@ -258,12 +281,20 @@ class Outbox:
           idle scan and a later explicit close with no new messages in
           between, or vice versa) are idempotent.
         """
-        boundary = self.get_session_boundary(session_id)
-        if boundary is not None:
-            messages = [m for m in messages if m.get("source_order", -1) > boundary]
         if not messages:
             return None
-        return self.queue_segment(session_id=session_id, messages=messages, closed_at=closed_at, reason=reason)
+        with closing(self._connect()) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT last_source_order FROM session_boundaries WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            boundary = row["last_source_order"] if row else None
+            if boundary is not None:
+                messages = [m for m in messages if m.get("source_order", -1) > boundary]
+            if not messages:
+                return None
+            return self._insert_segment(conn, session_id, messages, closed_at, reason)
 
     @staticmethod
     def _advance_session_boundary(conn: sqlite3.Connection, session_id: str, messages: list, now: str) -> None:
@@ -350,16 +381,20 @@ class Outbox:
 
     def list_pending(self, limit: int = 25) -> list:
         now = _now_iso()
+        stale_syncing_before = (
+            datetime.fromisoformat(now) - timedelta(seconds=SYNCING_STALE_AFTER_SECONDS)
+        ).isoformat()
         with closing(self._connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT * FROM segments
-                WHERE status IN (?, ?)
+                WHERE (status IN (?, ?) OR
+                       (status = ? AND updated_at <= ? AND lead_id IS NOT NULL AND summary IS NOT NULL))
                   AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
                 ORDER BY created_at ASC
                 LIMIT ?
                 """,
-                (STATUS_PENDING, STATUS_RETRY, now, limit),
+                (STATUS_PENDING, STATUS_RETRY, STATUS_SYNCING, stale_syncing_before, now, limit),
             ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
@@ -417,3 +452,4 @@ class Outbox:
         data = dict(row)
         data["messages"] = json.loads(data.pop("messages_json"))
         return data
+

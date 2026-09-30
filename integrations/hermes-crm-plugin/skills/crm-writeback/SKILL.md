@@ -18,6 +18,29 @@ from each other.
   that lead, leave the segment in the outbox and do not call
   `crm_commit_sync`. Do not guess a lead ID.
 
+## Using the CRM during a conversation
+
+- Use `crm_search_leads` to browse or search only unassigned leads and leads
+  assigned to Andrew. Search by phone number, name, email, business, or the
+  supported lead filters. Results are paginated; use the returned cursor to
+  continue instead of asking for an unbounded list.
+- If a phone search returns `ambiguous: true`, do not pick a candidate by
+  position. Compare candidates with the conversation context or ask a human
+  to identify the right record.
+- Use `crm_get_lead` to read a visible lead's contact and business details.
+  Leads assigned to someone else are hidden. Never work around that boundary.
+- Before changing an unassigned lead, call `crm_assign_self`. If assignment
+  conflicts because another person owns it, stop and do not read or write that
+  lead. Leads already assigned to Andrew may be used directly.
+- Use `crm_update_lead` only for current, supported follow-up facts: `status`,
+  `feedback`, `nextFollowUpAt`, `lastContactedAt`, and DNC details when the
+  contact asks not to be contacted. Do not set ownership, edit comments, or
+  clear DNC. Report unavailable or uncertain values instead of inventing them.
+- Use `crm_add_note` for an internal note that a CRM teammate should see.
+  Notes are append-only and distinct from the WhatsApp transcript and summary.
+- If CRM conversation history is available, use `crm_get_conversations` only
+  for a lead assigned to Andrew. Keep it distinct from the current session.
+
 ## When to act
 
 - After each conversation you consider complete (an explicit close), check
@@ -64,3 +87,4 @@ from each other.
   conversations that already happened.
 - You never fabricate a message or a timestamp. A message with no known
   timestamp is preserved with its timestamp marked unknown, not guessed.
+

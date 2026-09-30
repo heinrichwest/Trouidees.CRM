@@ -6,11 +6,13 @@ import tempfile
 import shutil
 import threading
 import unittest
+from unittest import mock
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from outbox import Outbox, STATUS_PENDING, STATUS_SYNCING, STATUS_SYNCED, STATUS_RETRY, STATUS_FAILED
+import outbox
 
 
 SAMPLE_MESSAGES = [
@@ -26,6 +28,32 @@ class OutboxTestCase(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+
+class WalModeRetryTests(unittest.TestCase):
+    def test_retries_transient_locked_error_while_enabling_wal(self):
+        class BusyOnceConnection:
+            row_factory = None
+
+            def __init__(self):
+                self.execute_calls = 0
+
+            def execute(self, sql):
+                self.execute_calls += 1
+                if sql == "PRAGMA journal_mode=WAL" and self.execute_calls == 1:
+                    raise sqlite3.OperationalError("database is locked")
+                return None
+
+        connection = BusyOnceConnection()
+        instance = object.__new__(Outbox)
+        instance.db_path = "unused.sqlite3"
+        with mock.patch("outbox.sqlite3.connect", return_value=connection), \
+                mock.patch("outbox.time.sleep") as sleep:
+            result = instance._connect()
+
+        self.assertIs(result, connection)
+        self.assertEqual(connection.execute_calls, 2)
+        sleep.assert_called_once()
 
 
 class QueueSegmentTests(OutboxTestCase):
@@ -84,6 +112,21 @@ class StateTransitionTests(OutboxTestCase):
         self.assertEqual(segment["status"], STATUS_SYNCED)
         self.assertEqual(segment["remote_conversation_id"], "conv-123")
         self.assertEqual(outbox.list_pending(), [])
+
+    def test_fresh_syncing_segment_is_hidden_but_stale_bound_syncing_segment_replays_same_payload(self):
+        outbox = Outbox(self.db_path)
+        segment_id = outbox.queue_segment("sess-1", SAMPLE_MESSAGES, closed_at="now", reason="close")
+        original = outbox.prepare_sync_payload(segment_id, lead_id="lead-1", summary="first summary")
+        outbox.mark_syncing(segment_id)
+        self.assertEqual(outbox.list_pending(), [])
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("UPDATE segments SET updated_at = ? WHERE segment_id = ?", ("2000-01-01T00:00:00+00:00", segment_id))
+
+        pending = outbox.list_pending()
+        self.assertEqual([item["segment_id"] for item in pending], [segment_id])
+        replay = outbox.prepare_sync_payload(segment_id, lead_id="lead-2", summary="regenerated summary")
+        self.assertEqual(replay, original)
 
     def test_retry_preserves_payload_and_increments_attempts(self):
         outbox = Outbox(self.db_path)
@@ -164,6 +207,80 @@ class SessionBoundaryTests(OutboxTestCase):
 
         reopened = Outbox(self.db_path)
         self.assertEqual(reopened.get_session_boundary("sess-1"), 1)
+
+    def test_concurrent_overlapping_snapshots_queue_each_source_message_once(self):
+        outbox = Outbox(self.db_path)
+        first_snapshot = [
+            {"direction": "inbound", "speaker": "contact", "body": "first", "timestamp": "unknown", "source_order": 0},
+            {"direction": "outbound", "speaker": "andrew", "body": "second", "timestamp": "unknown", "source_order": 1},
+        ]
+        later_snapshot = first_snapshot + [
+            {"direction": "inbound", "speaker": "contact", "body": "third", "timestamp": "unknown", "source_order": 2},
+        ]
+        original_connect = outbox._connect
+        first_read = threading.Event()
+        allow_first = threading.Event()
+        second_read = threading.Event()
+
+        class ObservedConnection:
+            def __init__(self, connection, worker):
+                self.connection = connection
+                self.worker = worker
+
+            @property
+            def row_factory(self):
+                return self.connection.row_factory
+
+            @row_factory.setter
+            def row_factory(self, value):
+                self.connection.row_factory = value
+
+            def execute(self, sql, *params):
+                if "SELECT last_source_order FROM session_boundaries" in sql:
+                    if self.worker == "capture-first":
+                        first_read.set()
+                        if not allow_first.wait(timeout=5):
+                            raise TimeoutError("test did not release first capture")
+                    elif self.worker == "capture-second":
+                        second_read.set()
+                return self.connection.execute(sql, *params)
+
+            def __enter__(self):
+                self.connection.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                return self.connection.__exit__(*args)
+
+            def close(self):
+                return self.connection.close()
+
+        def observed_connect():
+            return ObservedConnection(original_connect(), threading.current_thread().name)
+
+        outbox._connect = observed_connect
+        results = {}
+
+        def capture(name, snapshot):
+            results[name] = outbox.queue_new_messages("sess-1", snapshot, closed_at=name, reason="idle")
+
+        first = threading.Thread(name="capture-first", target=capture, args=("first", first_snapshot))
+        second = threading.Thread(name="capture-second", target=capture, args=("second", later_snapshot))
+        first.start()
+        self.assertTrue(first_read.wait(timeout=5))
+        second.start()
+        second_read_before_release = second_read.wait(timeout=0.2)
+        allow_first.set()
+        first.join(timeout=5)
+        second.join(timeout=5)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertFalse(second_read_before_release, "second capture read boundary before first commit")
+        segments = outbox.list_pending(limit=10)
+        captured_orders = [message["source_order"] for segment in segments for message in segment["messages"]]
+        self.assertEqual(sorted(captured_orders), [0, 1, 2])
+        self.assertEqual(len(set(captured_orders)), len(captured_orders))
 
 
 class PrepareSyncPayloadTests(OutboxTestCase):
@@ -359,3 +476,4 @@ class BindingColumnMigrationTests(OutboxTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

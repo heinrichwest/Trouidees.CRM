@@ -78,6 +78,25 @@ class CommitSyncTests(SyncRetryTestCase):
         self.assertEqual(segment["status"], STATUS_SYNCED)
         self.assertEqual(segment["remote_conversation_id"], "conv-99")
 
+    def test_success_with_nested_conversation_id_shape_is_persisted_and_returned(self):
+        """The real CRM API responds {"conversation": {"id": "..."}}, not a
+        top-level conversationId/id. crm_commit_sync must extract the nested
+        id, not silently fall back to the segment_id."""
+        client = _FakeClient([{"conversation": {"id": "conv-nested-1"}}])
+        result = json.loads(
+            tools.crm_commit_sync(
+                {"segment_id": self.segment_id, "lead_id": "lead-1", "summary": "Asked about pricing."},
+                client=client,
+                outbox=self.outbox,
+            )
+        )
+
+        self.assertTrue(result["committed"])
+        self.assertEqual(result["conversation_id"], "conv-nested-1")
+        segment = self.outbox.get_segment(self.segment_id)
+        self.assertEqual(segment["status"], STATUS_SYNCED)
+        self.assertEqual(segment["remote_conversation_id"], "conv-nested-1")
+
     def test_transient_failure_retries_and_keeps_data_queued(self):
         client = _FakeClient([CRMTransientError("503")])
         result = json.loads(
@@ -281,3 +300,4 @@ class BoundPayloadRetryTests(SyncRetryTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
