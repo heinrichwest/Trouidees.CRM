@@ -1,0 +1,36 @@
+manifest_version: 1
+name: trouidees-crm-writeback
+version: 0.1.0
+description: >-
+  Durable write-back of completed WhatsApp exchanges (verbatim transcript plus a
+  separate summary) from Hermes to the Trouidees CRM.
+author: Trouidees
+homepage: https://github.com/Trouidees/crm
+license: UNLICENSED
+tags:
+  - crm
+  - whatsapp
+  - writeback
+
+provides_tools:
+  - crm_pending_syncs
+  - crm_queue_session
+  - crm_commit_sync
+
+provides_hooks:
+  - on_session_finalize
+
+requires_env:
+  - name: CRM_API_BASE_URL
+    description: >-
+      Base URL of the Trouidees CRM agent API (e.g. https://crm.example.com).
+      No trailing slash. Not a secret.
+    secret: false
+  - name: CRM_AGENT_API_KEY
+    description: >-
+      Bearer API key issued to Andrew's agent identity by a CRM admin. Scoped to
+      conversation write-back only. Store in Hermes's secret configuration, never
+      in prompts, skills, or logs.
+    secret: true
+
+python_dependencies: []
