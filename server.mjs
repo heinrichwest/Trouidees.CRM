@@ -433,8 +433,8 @@ export async function handleRequest(request, response, { serveFiles = true } = {
   const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
   try {
     if (url.pathname.startsWith("/api/agent/")) {
-      if (process.env.AGENT_API_ENABLED !== "1") return sendJson(response, 503, { error: "Andrew API is disabled." });
-      if (!agentStore) return sendJson(response, 503, { error: "Andrew API requires the configured Neon database." });
+      if (process.env.AGENT_API_ENABLED !== "1") return sendJson(response, 503, { error: "Agent API is disabled." });
+      if (!agentStore) return sendJson(response, 503, { error: "Agent API requires the configured Neon database." });
       await handleAgentRequest({ request, response, store: agentStore });
       return;
     }

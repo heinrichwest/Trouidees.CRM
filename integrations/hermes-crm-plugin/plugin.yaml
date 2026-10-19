@@ -2,7 +2,7 @@ manifest_version: 1
 name: trouidees-crm-writeback
 version: 0.1.0
 description: >-
-  Browse and update Andrew-owned Trouidees CRM leads, add internal notes, and
+  Browse and update Trouidees CRM leads owned by this agent, add internal notes, and
   durably write completed WhatsApp exchanges as verbatim transcripts plus
   separate summaries.
 author: Trouidees
@@ -19,6 +19,10 @@ provides_tools:
   - crm_commit_sync
   - crm_search_leads
   - crm_get_lead
+  - crm_get_me
+  - crm_create_lead
+  - crm_get_activity
+  - crm_get_stats
   - crm_assign_self
   - crm_get_conversations
   - crm_add_note
@@ -35,10 +39,10 @@ requires_env:
     secret: false
   - name: CRM_AGENT_API_KEY
     description: >-
-      Bearer API key issued to Andrew's agent identity by a CRM admin. It needs
+      Bearer API key issued to this agent's identity by a CRM admin. It needs
       leads:search, leads:read, leads:assign:self, conversations:read,
       conversations:write, notes:write, and leads:update:limited scopes. Add
-      dnc:set if Andrew must record do-not-contact requests. Store in Hermes's
+      dnc:set if this agent must record do-not-contact requests. Store in Hermes's
       secret configuration, never in prompts, skills, or logs.
     secret: true
 

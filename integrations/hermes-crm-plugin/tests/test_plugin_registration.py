@@ -69,7 +69,8 @@ class PluginRegistrationTests(unittest.TestCase):
     def test_registers_exact_tool_names(self):
         self.assertEqual(set(self.ctx.tools.keys()), {
             "crm_pending_syncs", "crm_queue_session", "crm_commit_sync",
-            "crm_search_leads", "crm_get_lead", "crm_assign_self",
+            "crm_search_leads", "crm_get_lead", "crm_get_me", "crm_create_lead",
+            "crm_get_activity", "crm_get_stats", "crm_assign_self",
             "crm_add_note", "crm_update_lead", "crm_get_conversations",
         })
 

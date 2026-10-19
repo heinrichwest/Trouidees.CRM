@@ -836,6 +836,40 @@ $("usersTable").addEventListener("click", async (event) => {
   await loadUsers();
 });
 
+async function loadAgentKeys() {
+  const response = await fetch("/api/admin/agent-keys");
+  if (!response.ok) { $("agentKeysMeta").textContent = "Admin access required"; return; }
+  const { keys } = await response.json();
+  $("agentKeysMeta").textContent = `${keys.length} keys`;
+  $("agentKeysTable").querySelector("tbody").innerHTML = keys.map((key) => `<tr><td>${escapeHtml(key.label)}</td><td>${escapeHtml((key.scopes || []).join(", "))}</td><td><span class="status-chip">${key.active ? "Active" : "Revoked"}</span></td><td>${escapeHtml(key.createdAt ? new Date(key.createdAt).toLocaleDateString() : "—")}</td><td>${escapeHtml(key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : "Never")}</td><td>${key.active ? `<button class="button secondary revoke-agent-key" data-id="${key.id}" type="button">Revoke</button>` : ""}</td></tr>`).join("");
+}
+
+$("agentKeyForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const scopes = [...document.querySelectorAll('input[name="agentScope"]:checked')].map((input) => input.value);
+  if (!scopes.length) return alert("Select at least one scope.");
+  const response = await fetch("/api/admin/agent-keys", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ label:$("newAgentKeyLabel").value, scopes }) });
+  const payload = await response.json();
+  if (!response.ok) return alert(payload.error || "Could not create this key.");
+  $("agentKeyForm").reset();
+  document.querySelectorAll('input[name="agentScope"]').forEach((input) => { input.checked = ["leads:search","leads:read","leads:assign:self","conversations:read","conversations:write","notes:write","leads:update:limited"].includes(input.value); });
+  await loadAgentKeys();
+  alert(`Agent key created for ${payload.key.label}.\\n\\nSecret (shown once — copy it now):\\n${payload.secret}`);
+});
+
+$("agentKeysTable").addEventListener("click", async (event) => {
+  const button = event.target.closest("button.revoke-agent-key[data-id]");
+  if (!button) return;
+  if (!confirm("Revoke this agent key? Existing integrations using it will stop working.")) return;
+  const response = await fetch(`/api/admin/agent-keys/${button.dataset.id}`, { method:"DELETE" });
+  const payload = await response.json();
+  if (!response.ok) return alert(payload.error || "Could not revoke this key.");
+  await loadAgentKeys();
+});
+
+const originalLoadUsers = loadUsers;
+loadUsers = async function() { await originalLoadUsers(); await loadAgentKeys(); };
+
 async function initializeWorkspace() {
   const healthResponse = await fetch("/api/health");
   if (healthResponse.ok) {

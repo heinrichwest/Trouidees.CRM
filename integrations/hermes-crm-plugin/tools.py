@@ -263,6 +263,52 @@ def crm_get_lead(args: dict, client: Optional[CRMClient] = None, **kwargs) -> st
         return _tool_error(exc)
 
 
+def crm_get_me(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    try:
+        return _tool_json((client or _build_client()).get_me())
+    except Exception as exc:
+        return _tool_error(exc)
+
+
+def crm_create_lead(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    name = _required_text(args, "name")
+    lead_type = _required_text(args, "lead_type")
+    if not name:
+        return _tool_json({"error": "name is required."})
+    if not lead_type:
+        return _tool_json({"error": "lead_type is required."})
+    data = {"name": name, "leadType": lead_type}
+    for key in ("email", "phone", "organization", "role", "status", "priority", "location", "country", "details", "website", "source"):
+        value = args.get(key)
+        if isinstance(value, str) and value.strip():
+            data[key if key != "lead_type" else "leadType"] = value.strip()
+    try:
+        return _tool_json((client or _build_client()).create_lead(data))
+    except Exception as exc:
+        return _tool_error(exc)
+
+
+def crm_get_activity(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    lead_id = _required_text(args, "lead_id")
+    if not lead_id:
+        return _tool_json({"error": "lead_id is required."})
+    try:
+        return _tool_json((client or _build_client()).get_activity(lead_id))
+    except Exception as exc:
+        return _tool_error(exc)
+
+
+def crm_get_stats(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    try:
+        return _tool_json((client or _build_client()).get_stats())
+    except Exception as exc:
+        return _tool_error(exc)
+
+
 def crm_get_conversations(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
     args = args if isinstance(args, dict) else {}
     lead_id = _required_text(args, "lead_id")
@@ -317,7 +363,7 @@ def crm_update_lead(args: dict, client: Optional[CRMClient] = None, **kwargs) ->
             if not isinstance(value, bool):
                 return _tool_json({"error": "doNotContact must be a boolean."})
             if value is False:
-                return _tool_json({"error": "Andrew cannot clear do-not-contact."})
+                return _tool_json({"error": "The agent cannot clear do-not-contact."})
         elif not isinstance(value, str) or len(value) > maximum:
             return _tool_json({"error": f"{key} must be a string of at most {maximum} characters."})
     try:
