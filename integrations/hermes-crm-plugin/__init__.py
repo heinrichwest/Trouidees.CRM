@@ -68,6 +68,7 @@ def register(ctx) -> None:
         ("crm_assign_self", "CRM_ASSIGN_SELF_SCHEMA", "crm_assign_self"),
         ("crm_add_note", "CRM_ADD_NOTE_SCHEMA", "crm_add_note"),
         ("crm_update_lead", "CRM_UPDATE_LEAD_SCHEMA", "crm_update_lead"),
+        ("crm_bulk_update_leads", "CRM_BULK_UPDATE_LEADS_SCHEMA", "crm_bulk_update_leads"),
         ("crm_get_me", "CRM_GET_ME_SCHEMA", "crm_get_me"),
         ("crm_create_lead", "CRM_CREATE_LEAD_SCHEMA", "crm_create_lead"),
         ("crm_get_activity", "CRM_GET_ACTIVITY_SCHEMA", "crm_get_activity"),

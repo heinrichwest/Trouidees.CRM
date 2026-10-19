@@ -459,7 +459,7 @@ export async function handleRequest(request, response, { serveFiles = true } = {
     }
 
     const user = neonStore ? await currentUser(neonStore, request) : { id: "local-admin", email: "local@localhost", role: "admin", active: true };
-    if (url.pathname.startsWith("/api/admin/agent-keys") || /^\/api\/admin\/leads\/[^/]+\/dnc\/clear$/.test(url.pathname)) {
+    if (url.pathname.startsWith("/api/admin/agent-keys") || /^\/api\/admin\/leads\/[^/]+\/(dnc\/clear|transfer)$/.test(url.pathname)) {
       if (!agentStore) return sendJson(response, 503, { error: "Agent administration requires the configured Neon database." });
       await handleAgentAdminRequest({ request, response, store: agentStore, user });
       return;

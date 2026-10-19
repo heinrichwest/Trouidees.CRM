@@ -204,3 +204,39 @@ CRM_GET_STATS_SCHEMA = {
     "description": "Return counts of this agent's assigned leads grouped by status.",
     "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
 }
+
+CRM_BULK_UPDATE_LEADS_SCHEMA = {
+    "name": "crm_bulk_update_leads",
+    "description": (
+        "Update the same supported lead fields for up to 50 leads assigned to this agent. "
+        "Returns counts of updated leads and per-id failures."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "CRM lead IDs to update (1 to 50).",
+            },
+            "fields": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string"},
+                    "feedback": {"type": "string"},
+                    "comments": {"type": "string"},
+                    "nextFollowUpAt": {"type": "string"},
+                    "lastContactedAt": {"type": "string"},
+                    "doNotContact": {"type": "boolean"},
+                    "dncReason": {"type": "string"},
+                    "dncWording": {"type": "string"},
+                },
+                "additionalProperties": False,
+                "description": "Fields to apply to every listed lead.",
+            },
+        },
+        "required": ["ids", "fields"],
+        "additionalProperties": False,
+    },
+}
+

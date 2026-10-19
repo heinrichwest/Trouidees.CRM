@@ -27,6 +27,7 @@ provides_tools:
   - crm_get_conversations
   - crm_add_note
   - crm_update_lead
+  - crm_bulk_update_leads
 
 provides_hooks:
   - on_session_finalize

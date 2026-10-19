@@ -168,10 +168,11 @@
         </form>
       </section>
 
-      <section id="loadingView" class="loading-view hidden" aria-live="polite">
+<section id="loadingView" class="loading-view hidden" aria-live="polite">
         <div class="pulse"><i></i></div><p id="loadingEyebrow" class="eyebrow">Firecrawl is researching</p><h2 id="loadingTitle">Preparing research tasks…</h2>
         <p id="loadingDetail">The report will remain available if a crawl takes longer than expected.</p>
-        <div class="progress-track"><span id="progressBar"></span></div>
+        <div class="progress-track"><span id="progressBar"></span><strong id="loadingPercent">0%</strong></div>
+        <ol id="loadingSteps" class="loading-steps"><li data-stage="search">Search public sources</li><li data-stage="crawl">Crawl and extract evidence</li><li data-stage="agent">Synthesise requested fields</li><li data-stage="complete">Save report and CRM leads</li></ol>
         <button id="stopResearch" class="button secondary hidden" type="button">Stop and save leads found</button>
       </section>
 

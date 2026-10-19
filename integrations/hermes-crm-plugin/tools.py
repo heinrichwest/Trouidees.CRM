@@ -234,6 +234,9 @@ def crm_search_leads(args: dict, client: Optional[CRMClient] = None, **kwargs) -
     query = args.get("query", "")
     lead_type = args.get("lead_type")
     status = args.get("status")
+    assigned_to = args.get("assigned_to")
+    unassigned = args.get("unassigned")
+    fields = args.get("fields")
     limit = args.get("limit", 25)
     cursor = args.get("cursor", "0")
     if not isinstance(query, str) or len(query) > 200:
@@ -245,9 +248,14 @@ def crm_search_leads(args: dict, client: Optional[CRMClient] = None, **kwargs) -
     if not isinstance(cursor, str) or not cursor.isdigit() or len(cursor) > 7:
         return _tool_json({"error": "cursor must be a numeric pagination cursor."})
     try:
-        return _tool_json((client or _build_client()).search_leads(
-            query=query, lead_type=lead_type, status=status, limit=limit, cursor=cursor,
-        ))
+        search_kwargs = {"query": query, "lead_type": lead_type, "status": status, "limit": limit, "cursor": cursor}
+        if assigned_to is not None:
+            search_kwargs["assigned_to"] = assigned_to
+        if unassigned is True:
+            search_kwargs["unassigned"] = True
+        if fields is not None:
+            search_kwargs["fields"] = fields
+        return _tool_json((client or _build_client()).search_leads(**search_kwargs))
     except Exception as exc:
         return _tool_error(exc)
 
@@ -368,6 +376,34 @@ def crm_update_lead(args: dict, client: Optional[CRMClient] = None, **kwargs) ->
             return _tool_json({"error": f"{key} must be a string of at most {maximum} characters."})
     try:
         return _tool_json((client or _build_client()).update_lead(lead_id, fields))
+    except Exception as exc:
+        return _tool_error(exc)
+
+def crm_bulk_update_leads(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    ids = args.get("ids")
+    fields = args.get("fields")
+    if not isinstance(ids, list) or not ids or len(ids) > 50:
+        return _tool_json({"error": "ids must be a non-empty array of at most 50 lead IDs."})
+    if not all(isinstance(item, str) and item.strip() for item in ids):
+        return _tool_json({"error": "ids must contain non-empty strings."})
+    if not isinstance(fields, dict) or not fields:
+        return _tool_json({"error": "fields must be a non-empty object."})
+    if any(key not in _UPDATE_FIELDS for key in fields):
+        return _tool_json({"error": "Unsupported lead update field."})
+    for key, maximum in _UPDATE_FIELDS.items():
+        if key not in fields:
+            continue
+        value = fields[key]
+        if maximum is None:
+            if not isinstance(value, bool):
+                return _tool_json({"error": "doNotContact must be a boolean."})
+            if value is False:
+                return _tool_json({"error": "The agent cannot clear do-not-contact."})
+        elif not isinstance(value, str) or len(value) > maximum:
+            return _tool_json({"error": f"{key} must be a string of at most {maximum} characters."})
+    try:
+        return _tool_json((client or _build_client()).bulk_update_leads(ids, fields))
     except Exception as exc:
         return _tool_error(exc)
 

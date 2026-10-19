@@ -134,6 +134,9 @@ class CRMClient:
         status: Optional[str] = None,
         limit: Optional[int] = None,
         cursor: Optional[str] = None,
+        assigned_to: Optional[str] = None,
+        unassigned: Optional[bool] = None,
+        fields: Optional[list] = None,
     ) -> dict:
         """GET /api/agent/leads?q=&leadType=&status=&limit=&cursor= — a bounded
         search; each filter is only included when given, so an all-default call
@@ -149,6 +152,12 @@ class CRMClient:
             params.append(("limit", limit))
         if cursor is not None:
             params.append(("cursor", cursor))
+        if assigned_to is not None:
+            params.append(("assignedTo", assigned_to))
+        if unassigned is True:
+            params.append(("unassigned", "true"))
+        if fields is not None:
+            params.append(("fields", ",".join(fields) if isinstance(fields, list) else str(fields)))
 
         url = f"{self.base_url}/api/agent/leads"
         if params:
@@ -216,6 +225,28 @@ class CRMClient:
 
         url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}"
         return self._request("PATCH", url, patch)
+
+    def bulk_update_leads(self, ids, fields=None, **kwargs):
+        """POST /api/agent/leads/bulk-update with {ids, fields}."""
+        if not isinstance(ids, list) or not ids:
+            raise ValueError("ids must be a non-empty list")
+        patch = fields
+        if patch is None:
+            patch = kwargs.get("fields", kwargs.get("patch"))
+        if not isinstance(patch, dict) or not patch:
+            raise ValueError("fields must be a non-empty object")
+
+        disallowed = sorted(set(patch) - _UPDATE_ALLOWED_FIELDS)
+        if disallowed:
+            raise ValueError(f"bulk_update_leads: field(s) not allowed: {disallowed}")
+        if patch.get("doNotContact") is False:
+            raise ValueError(
+                "bulk_update_leads: doNotContact cannot be cleared by the agent; "
+                "only a human administrator may clear DNC"
+            )
+
+        url = f"{self.base_url}/api/agent/leads/bulk-update"
+        return self._request("POST", url, {"ids": ids, "fields": patch})
 
     def _request(self, method: str, url: str, payload: Optional[dict] = None) -> dict:
         request = urllib.request.Request(

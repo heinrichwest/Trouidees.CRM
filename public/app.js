@@ -163,7 +163,16 @@ function showMain(view) {
 function updateProgress(progress = {}) {
   $("loadingTitle").textContent = progress.message || "Researching public sources…";
   const ratio = progress.total ? Math.min(90, 10 + (Number(progress.completed || 0) / Number(progress.total)) * 70) : progress.stage === "agent" ? 82 : 25;
-  $("progressBar").style.width = `${progress.stage === "complete" ? 100 : ratio}%`;
+  const percent = progress.stage === "complete" ? 100 : Math.round(ratio);
+  $("progressBar").style.width = `${percent}%`;
+  const percentNode = $("loadingPercent");
+  if (percentNode) percentNode.textContent = `${percent}%`;
+  const stageOrder = ["search", "crawl", "agent", "complete"];
+  const currentIndex = Math.max(0, stageOrder.indexOf(progress.stage === "overnight" ? "search" : (progress.stage || "search")));
+  document.querySelectorAll("#loadingSteps li").forEach((item, index) => {
+    item.classList.toggle("done", index < currentIndex);
+    item.classList.toggle("active", index === currentIndex);
+  });
   $("loadingDetail").textContent = progress.stage === "maps"
     ? `${progress.leadsSaved || 0} phone-qualified business leads saved · ${progress.googleRequests || 0} Google Places requests completed.`
     : progress.stage === "overnight"
