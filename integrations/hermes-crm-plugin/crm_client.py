@@ -5,8 +5,8 @@ POST /api/agent/leads/:id/conversations
          summary, idempotencyKey}
 
 The CRM side (lib/agent-api.mjs) validates each message strictly:
-direction must be exactly "incoming" or "outgoing", speaker must be exactly
-"contact" or "andrew", and timestamp must be a valid ISO string or null.
+direction must be exactly "incoming" or "outgoing"; incoming speaker must be "contact",
+outgoing speaker any non-empty name; timestamp must be a valid ISO string or null.
 Internally (outbox.py, session_export.py) this plugin keeps the more
 descriptive "inbound"/"outbound" direction and the sentinel string
 "unknown" for a missing timestamp; this module is the single place that
@@ -160,6 +160,23 @@ class CRMClient:
             raise ValueError("lead_id is required")
         url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}"
         return self._request("GET", url)
+
+    def get_me(self) -> dict:
+        return self._request("GET", f"{self.base_url}/api/agent/me")
+
+    def create_lead(self, data: dict) -> dict:
+        if not isinstance(data, dict):
+            raise ValueError("data must be an object")
+        return self._request("POST", f"{self.base_url}/api/agent/leads", data)
+
+    def get_activity(self, lead_id: str) -> dict:
+        if not lead_id:
+            raise ValueError("lead_id is required")
+        url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}/activity"
+        return self._request("GET", url)
+
+    def get_stats(self) -> dict:
+        return self._request("GET", f"{self.base_url}/api/agent/stats")
 
     def list_conversations(self, lead_id: str) -> dict:
         if not lead_id:

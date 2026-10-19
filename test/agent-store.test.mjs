@@ -136,9 +136,9 @@ test("phone ambiguity candidates use the same bounded page and cursor", async ()
   assert.equal(result.ambiguous, true);
   assert.deepEqual(result.candidates, ["second"]);
   assert.equal(result.nextCursor, "2");
-  const candidatePage = queryLog.find(({ query }) => query.includes("crm_normalize_za_phone(phone) =") && query.includes("LIMIT $2"));
-  assert.match(candidatePage.query, /LIMIT \$2 OFFSET \$3/);
-  assert.deepEqual(candidatePage.params.slice(1), [2, 1]);
+  const candidatePage = queryLog.find(({ query }) => query.includes("crm_normalize_za_phone(phone) =") && query.includes("OFFSET"));
+  assert.match(candidatePage.query, /LIMIT \$\d+ OFFSET \$\d+/);
+  assert.deepEqual(candidatePage.params.slice(-2), [2, 1]);
 });
 
 test("conversation history reads ownership and data in one guarded statement", async () => {
@@ -147,7 +147,7 @@ test("conversation history reads ownership and data in one guarded statement", a
     : []);
   assert.deepEqual(await store.listConversations(leadId), [{ id: "conversation" }]);
   assert.equal(calls.length, 1);
-  assert.match(calls[0].query, /BTRIM\(COALESCE\(leads\.data->>'assignedTo', ''\)\) = 'Andrew'/);
+  assert.match(calls[0].query, /BTRIM\(COALESCE\(leads\.data->>'assignedTo', ''\)\) = \$2/);
 });
 
 test("conversation history keeps 403 for a foreign owner and 404 semantics for a missing lead", async () => {

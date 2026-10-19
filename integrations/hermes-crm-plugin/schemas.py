@@ -55,7 +55,7 @@ CRM_COMMIT_SYNC_SCHEMA = {
     "description": (
         "Submit a pending outbox segment's exact original messages plus a "
         "separately generated factual summary to the CRM for the given lead. "
-        "lead_id must be a lead Andrew already owns. Marks the segment synced "
+        "lead_id must be a lead this agent already owns. Marks the segment synced "
         "only after the CRM confirms; safe to retry on transient failure."
     ),
     "parameters": {
@@ -67,7 +67,7 @@ CRM_COMMIT_SYNC_SCHEMA = {
             },
             "lead_id": {
                 "type": "string",
-                "description": "The CRM lead ID Andrew owns that this conversation belongs to.",
+                "description": "The CRM lead ID this agent owns that this conversation belongs to.",
             },
             "summary": {
                 "type": "string",
@@ -84,8 +84,8 @@ CRM_COMMIT_SYNC_SCHEMA = {
 CRM_SEARCH_LEADS_SCHEMA = {
     "name": "crm_search_leads",
     "description": (
-        "Search the leads Andrew may work on: unassigned leads and leads already "
-        "assigned to Andrew. A phone search can return an ambiguity response; "
+        "Search the leads this agent may work on: unassigned leads and leads already "
+        "assigned to this agent. A phone search can return an ambiguity response; "
         "when it does, use the returned candidate IDs to inspect matches and do "
         "not choose one without confirming which contact is intended."
     ),
@@ -113,7 +113,7 @@ CRM_GET_LEAD_SCHEMA = {
 
 CRM_GET_CONVERSATIONS_SCHEMA = {
     "name": "crm_get_conversations",
-    "description": "Read the stored WhatsApp conversation messages and summaries for a lead assigned to Andrew.",
+    "description": "Read the stored WhatsApp conversation messages and summaries for a lead assigned to this agent.",
     "parameters": {"type": "object", "properties": {
         "lead_id": {"type": "string", "description": "CRM lead ID."},
     }, "required": ["lead_id"], "additionalProperties": False},
@@ -121,7 +121,7 @@ CRM_GET_CONVERSATIONS_SCHEMA = {
 
 CRM_ASSIGN_SELF_SCHEMA = {
     "name": "crm_assign_self",
-    "description": "Assign an unassigned lead to Andrew. This cannot reassign a lead owned by someone else.",
+    "description": "Assign an unassigned lead to this agent. This cannot reassign a lead owned by someone else.",
     "parameters": {"type": "object", "properties": {
         "lead_id": {"type": "string", "description": "CRM lead ID."},
     }, "required": ["lead_id"], "additionalProperties": False},
@@ -139,9 +139,9 @@ CRM_ADD_NOTE_SCHEMA = {
 CRM_UPDATE_LEAD_SCHEMA = {
     "name": "crm_update_lead",
     "description": (
-        "Update supported lead fields for a lead assigned to Andrew. Allowed fields are "
+        "Update supported lead fields for a lead assigned to this agent. Allowed fields are "
         "status, feedback, comments, nextFollowUpAt, lastContactedAt, doNotContact, dncReason, "
-        "and dncWording. Andrew may set doNotContact true but cannot clear it."
+        "and dncWording. This agent may set doNotContact true but cannot clear it."
     ),
     "parameters": {"type": "object", "properties": {
         "lead_id": {"type": "string", "description": "CRM lead ID."},
@@ -158,3 +158,49 @@ CRM_UPDATE_LEAD_SCHEMA = {
     }, "required": ["lead_id", "fields"], "additionalProperties": False},
 }
 
+
+
+CRM_GET_ME_SCHEMA = {
+    "name": "crm_get_me",
+    "description": "Return the identity and scopes of the CRM agent key in use for this profile.",
+    "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+}
+
+CRM_CREATE_LEAD_SCHEMA = {
+    "name": "crm_create_lead",
+    "description": "Create a new CRM lead assigned to this agent. Returns the existing lead if a matching phone or email is already present in the same lead type.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Lead or business name."},
+            "lead_type": {"type": "string", "description": "Lead type (CRM category)."},
+            "email": {"type": "string", "description": "Optional email address."},
+            "phone": {"type": "string", "description": "Optional phone number."},
+            "organization": {"type": "string", "description": "Optional organization or school name."},
+            "role": {"type": "string", "description": "Optional role or business type."},
+            "status": {"type": "string", "description": "Optional initial status. Defaults to New."},
+            "priority": {"type": "string", "description": "Optional priority. Defaults to Normal."},
+            "location": {"type": "string", "description": "Optional location."},
+            "country": {"type": "string", "description": "Optional country."},
+            "details": {"type": "string", "description": "Optional details."},
+            "website": {"type": "string", "description": "Optional website URL."},
+            "source": {"type": "string", "description": "Optional source label."},
+        },
+        "required": ["name", "lead_type"],
+        "additionalProperties": False,
+    },
+}
+
+CRM_GET_ACTIVITY_SCHEMA = {
+    "name": "crm_get_activity",
+    "description": "Read the conversation and note activity timeline for a lead this agent may work on.",
+    "parameters": {"type": "object", "properties": {
+        "lead_id": {"type": "string", "description": "CRM lead ID."},
+    }, "required": ["lead_id"], "additionalProperties": False},
+}
+
+CRM_GET_STATS_SCHEMA = {
+    "name": "crm_get_stats",
+    "description": "Return counts of this agent's assigned leads grouped by status.",
+    "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+}

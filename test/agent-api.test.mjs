@@ -4,13 +4,17 @@ import { handleAgentRequest, handleAgentAdminRequest } from "../lib/agent-api.mj
 import { hashToken } from "../lib/auth.mjs";
 
 const token = "a".repeat(43);
-function setup({ scopes = ["leads:search", "leads:read", "leads:assign:self", "conversations:read", "conversations:write", "notes:write", "leads:update:limited", "dnc:set"], lead = { id: "123e4567-e89b-42d3-a456-426614174000", assignedTo: "" } } = {}) {
+function setup({ scopes = ["leads:search", "leads:read", "leads:create", "leads:assign:self", "conversations:read", "conversations:write", "notes:write", "leads:update:limited", "dnc:set"], lead = { id: "123e4567-e89b-42d3-a456-426614174000", assignedTo: "" } } = {}) {
   const calls = []; const result = {};
   const store = {
     db: { ensureSchema: async () => {}, sql: async (query, params) => query.includes("UPDATE agent_keys SET last_used_at") && params[0] === hashToken(token) ? [{ id: "key", scopes }] : [] },
     listVisibleLeads: async (args) => { calls.push(["list", args]); return { leads: [lead], nextCursor: null }; },
     getVisibleLead: async (id) => id === lead.id ? lead : null,
-    assignSelf: async (id) => id === lead.id ? { ...lead, assignedTo: "Andrew" } : null,
+    visibleRow: async (id) => id === lead.id ? { data: lead, do_not_contact: false } : null,
+    assignSelf: async (id, agent = "Andrew") => id === lead.id ? { ...lead, assignedTo: agent } : null,
+    createLead: async (agent, data) => ({ lead: { id: "new-id", name: data.name, assignedTo: agent, status: "New" }, created: true }),
+    getAgentStats: async (agent) => ({ agent, total: 1, byStatus: { New: 1 } }),
+    listActivity: async (id) => [],
     listConversations: async (id) => { calls.push(["conversations", id]); return []; },
     appendConversation: async (data) => { calls.push(["appendConversation", data]); return data; },
     appendNote: async (...args) => { calls.push(["note", ...args]); return { id: "n", body: args[1] }; },
@@ -82,4 +86,34 @@ test("admin agent-key and DNC routes require an admin and a reason", async () =>
   await handleAgentAdminRequest({ ...admin, request: admin.request("POST", "/api/admin/leads/123e4567-e89b-42d3-a456-426614174000/dnc/clear", { reason: "Contact confirmed the request was resolved" }), user: { id: "admin", active: true, role: "admin" } });
   assert.equal(admin.result.status, 200);
   assert.equal(admin.calls[0][3], "Contact confirmed the request was resolved");
+});
+
+test("agent API exposes the authenticated agent identity", async () => {
+  const ctx = setup();
+  await handleAgentRequest({ ...ctx, request: ctx.request("GET", "/api/agent/me") });
+  assert.equal(ctx.result.status, 200);
+  assert.equal(ctx.result.body.label, "Andrew");
+  assert.ok(Array.isArray(ctx.result.body.scopes));
+});
+
+test("agent API creates a lead owned by the authenticated agent", async () => {
+  const ctx = setup();
+  await handleAgentRequest({ ...ctx, request: ctx.request("POST", "/api/agent/leads", { name: "New School", leadType: "Tutors - South Africa Mobile" }) });
+  assert.equal(ctx.result.status, 201);
+  assert.equal(ctx.result.body.lead.assignedTo, "Andrew");
+  assert.equal(ctx.result.body.created, true);
+});
+
+test("agent API returns pipeline stats for the authenticated agent", async () => {
+  const ctx = setup();
+  await handleAgentRequest({ ...ctx, request: ctx.request("GET", "/api/agent/stats") });
+  assert.equal(ctx.result.status, 200);
+  assert.equal(ctx.result.body.stats.total, 1);
+});
+
+test("agent API returns activity for a visible lead", async () => {
+  const ctx = setup();
+  await handleAgentRequest({ ...ctx, request: ctx.request("GET", "/api/agent/leads/123e4567-e89b-42d3-a456-426614174000/activity") });
+  assert.equal(ctx.result.status, 200);
+  assert.deepEqual(ctx.result.body.activity, []);
 });

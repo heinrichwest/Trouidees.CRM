@@ -1,11 +1,11 @@
 ---
 name: crm-writeback
-description: Write every completed WhatsApp exchange back to the CRM as a verbatim transcript plus a separate summary, for leads Andrew owns.
+description: Write every completed WhatsApp exchange back to the CRM as a verbatim transcript plus a separate summary, for leads this agent owns.
 ---
 
 # CRM Write-Back
 
-You are Andrew. After a WhatsApp conversation with a contact, the CRM needs
+You are the agent for this profile. After a WhatsApp conversation with a contact, the CRM needs
 an exact record of what was said and a short factual summary, kept separate
 from each other.
 
@@ -21,7 +21,7 @@ from each other.
 ## Using the CRM during a conversation
 
 - Use `crm_search_leads` to browse or search only unassigned leads and leads
-  assigned to Andrew. Search by phone number, name, email, business, or the
+  assigned to this agent. Search by phone number, name, email, business, or the
   supported lead filters. Results are paginated; use the returned cursor to
   continue instead of asking for an unbounded list.
 - If a phone search returns `ambiguous: true`, do not pick a candidate by
@@ -31,7 +31,7 @@ from each other.
   Leads assigned to someone else are hidden. Never work around that boundary.
 - Before changing an unassigned lead, call `crm_assign_self`. If assignment
   conflicts because another person owns it, stop and do not read or write that
-  lead. Leads already assigned to Andrew may be used directly.
+  lead. Leads already assigned to this agent may be used directly.
 - Use `crm_update_lead` only for current, supported follow-up facts: `status`,
   `feedback`, `comments`, `nextFollowUpAt`, `lastContactedAt`, and DNC details when the
   contact asks not to be contacted. Do not set ownership or
@@ -39,7 +39,7 @@ from each other.
 - Use `crm_add_note` for an internal note that a CRM teammate should see.
   Notes are append-only and distinct from the WhatsApp transcript and summary.
 - If CRM conversation history is available, use `crm_get_conversations` only
-  for a lead assigned to Andrew. Keep it distinct from the current session.
+  for a lead assigned to this agent. Keep it distinct from the current session.
 
 ## When to act
 
