@@ -49,7 +49,7 @@ test("two agents research, claim, replay delivery, and classify no reply across 
   const agentA = `flow-a-${randomUUID()}`;
   const agentB = `flow-b-${randomUUID()}`;
   const actorId = randomUUID();
-  const leadIds = Array.from({ length: 10 }, () => randomUUID());
+  const leadIds = Array.from({ length: 12 }, () => randomUUID());
   const keys = [];
   let baseUrl;
   let lostPatch = false;
@@ -136,7 +136,7 @@ test("two agents research, claim, replay delivery, and classify no reply across 
     assert.equal((await neon.sql("SELECT COUNT(*)::int AS n FROM lead_conversations WHERE lead_id=$1", [claimA.lead.id]))[0].n, 1);
 
     // Persisted delivery receipt is dated to the exact Friday boundary for the no-reply decision.
-    await neon.sql("UPDATE lead_first_contacts SET effective_delivered_at='2026-10-16T08:15:00Z',source_time_known=TRUE WHERE lead_id=$1", [claimA.lead.id]);
+    await neon.sql("UPDATE lead_first_contacts SET source_delivered_at='2026-10-16T08:15:00Z',effective_delivered_at='2026-10-16T08:15:00Z',source_time_known=TRUE WHERE lead_id=$1", [claimA.lead.id]);
     const inbound = await plainRequest(createdA.secret, "POST", `/api/agent/leads/${claimA.lead.id}/conversations`, {
       segmentId: `reply-${randomUUID()}`, idempotencyKey: `reply-${randomUUID()}`, channel: "whatsapp",
       summary: "Lead replied.", messages: [{ direction: "incoming", speaker: "contact", body: "Thanks", timestamp: "2026-10-26T08:16:00Z" }],
@@ -153,7 +153,7 @@ test("two agents research, claim, replay delivery, and classify no reply across 
         job: { id: "job-flow-b", lead_id: claimB.lead.id } },
       binding: { lead_id: claimB.lead.id, claim_id: claimB.claim.id } });
     assert.equal(requestBResult.applied, true);
-    await neon.sql("UPDATE lead_first_contacts SET effective_delivered_at='2026-10-16T08:15:00Z',source_time_known=TRUE WHERE lead_id=$1", [claimB.lead.id]);
+    await neon.sql("UPDATE lead_first_contacts SET source_delivered_at='2026-10-16T08:15:00Z',effective_delivered_at='2026-10-16T08:15:00Z',source_time_known=TRUE WHERE lead_id=$1", [claimB.lead.id]);
     const reportingProfile = join(temporary, "sales-profile");
     await mkdir(reportingProfile, { recursive: true });
     await writeFile(join(reportingProfile, "sales-ops.json"), JSON.stringify({ profile: reportingProfile, agent_name: agentB,
@@ -169,7 +169,9 @@ test("two agents research, claim, replay delivery, and classify no reply across 
     assert.ok(activity.body.activity.some((entry) => entry.type === "outcome" && entry.outcome === "no_reply"));
 
     const claims = [claimA, claimB];
-    for (let i = 0; i < 7; i += 1) {
+    // The initial deliveries were aged to Friday for the no-reply checks, so
+    // fill Monday's eight held slots with fresh reservations before testing #9.
+    for (let i = 0; i < 8; i += 1) {
       const next = await plainRequest(createdA.secret, "POST", "/api/agent/outreach/claim", { requestKey: `a-more-${i}-${randomUUID()}` });
       assert.ok(next.body.claim);
       claims.push(next.body);
