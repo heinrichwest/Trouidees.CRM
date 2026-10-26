@@ -82,15 +82,22 @@ test("admin selects a batch and resumes saved results without reprocessing compl
   await expect(page.getByRole("heading", { name:"Enrichment batch" })).toBeVisible();
   expect(calls.filter((call) => call.type === "create").map((call) => call.requestKey)).toHaveLength(2);
   expect(calls.filter((call) => call.type === "create")[0].requestKey).toBe(calls.filter((call) => call.type === "create")[1].requestKey);
+  expect(await page.evaluate(() => document.visibilityState)).toBe("visible");
   await page.getByRole("button", { name:"Resume" }).click();
+  await expect(page.locator("#enrichmentStatus")).toContainText("Progress saved. Resume to replay the same operation safely");
+  await page.getByRole("button", { name:"Resume" }).click();
+  await expect.poll(() => operationKeys.length).toBeGreaterThanOrEqual(2);
+  expect(operationKeys[0]).toBe(operationKeys[1]);
   await expect(page.locator("#enrichmentBatches")).toContainText("1 ready · 1 needs review");
   await expect(page.locator("#enrichmentBatches")).toContainText("Missing verified source facts.");
-  expect(operationKeys[0]).toBe(operationKeys[1]);
   await expect(page.locator("#enrichmentBatches")).toContainText("completed · 1 ready · 1 needs review");
   expect(operationKeys).toHaveLength(3);
   expect(operationKeys[2]).not.toBe(operationKeys[0]);
-  await expect(page.locator("#enrichmentBatches a.source-link")).toHaveAttribute("href", "https://example.test/source");
-  await expect(page.locator("#enrichmentBatches")).toContainText("6 reported credits");
+  await expect(page.locator("#enrichmentBatches a.source-link").first()).toHaveAttribute("href", "https://example.test/source");
+  const items = page.locator("#enrichmentBatches .enrichment-items li");
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(0)).toContainText("3 reported credits");
+  await expect(items.nth(1)).toContainText("3 reported credits");
   expect(processedLeadIds).toEqual(selectedIds);
 });
 
