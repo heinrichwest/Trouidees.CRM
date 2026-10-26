@@ -21,6 +21,8 @@ class NativeDeliveryStateTests(unittest.TestCase):
                 restarted.bind("segment-1", {"lead_id": "lead-2", "body": "changed"})
             restarted.mark_applied("segment-1", "conversation-1")
             self.assertEqual(restarted.get("segment-1")["conversation_id"], "conversation-1")
+            with self.assertRaises(ValueError):
+                restarted.mark_applied("segment-1", "conversation-2")
 
 
 if __name__ == "__main__":

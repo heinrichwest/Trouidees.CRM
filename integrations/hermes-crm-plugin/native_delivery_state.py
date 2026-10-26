@@ -43,12 +43,16 @@ class NativeDeliveryState:
         if not conversation_id:
             raise ValueError("conversation ID is required")
         with closing(self._connect()) as conn, conn:
-            cursor = conn.execute(
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT conversation_id FROM native_deliveries WHERE segment_id=?", (segment_id,)).fetchone()
+            if row is None:
+                raise KeyError("native delivery binding does not exist")
+            if row["conversation_id"] not in (None, conversation_id):
+                raise ValueError("native delivery is already applied to a different conversation")
+            conn.execute(
                 "UPDATE native_deliveries SET conversation_id=?, applied_at=COALESCE(applied_at,CURRENT_TIMESTAMP) WHERE segment_id=?",
                 (conversation_id, segment_id),
             )
-            if cursor.rowcount != 1:
-                raise KeyError("native delivery binding does not exist")
 
     def get(self, segment_id: str):
         with closing(self._connect()) as conn:
