@@ -57,8 +57,8 @@ For a delivered event, the CRM receives one exact rendered message:
 
 The identity is `native-whatsapp:v1:` plus SHA-256 of the UTF-8 compact JSON
 array `[stableNamespace, account, outbox_id]`. Namespace and account are
-stable deployment configuration; account defaults only to an explicit
-`default` value. Message body, summary, state, credentials, and filesystem
+stable deployment configuration and must be supplied explicitly. Message body,
+summary, state, credentials, and filesystem
 paths are never part of identity. The segment is unique across leads.
 
 The adapter freezes the lead, claim, channel, summary, exact body, speaker,
@@ -134,7 +134,11 @@ generic no-reply field.
   explicitly sets it. No profiles, jobs, credentials, or production
   migrations are changed by this repository work.
 
-The companion SALES job binding, cursor acknowledgment, native batch
-allocation, and two-ledger reporting pieces still require the matching SALES
-checkout and its native Hermes fork for acceptance. No production pilot or
-deployment readiness is claimed here.
+The isolated SALES branch now contains durable job bindings and versioned
+cursor receipts, CRM-claimed batch allocation, hosted-native manual-send
+guards, and the no-reply reporting mirror. Its offline tests pass. The complete
+loopback CRM/SALES flow requires a disposable database and an explicit
+`SALES_OPS_SOURCE_ROOT`; native gateway runtime acceptance also requires the
+matching Hermes fork pinned by `tests/run_native.sh`. Those external acceptance
+checks are not deployment approval. No production pilot or deployment
+readiness is claimed here.

@@ -153,6 +153,17 @@ behavior.
 
 ## Install
 
+### Native supervised WhatsApp writeback
+
+The optional native adapter records a transcript only for confirmed delivered outcomes. It freezes
+the lead, claim, rendered body and segment identity in profile-local SQLite, submits the exact
+outgoing message through the hosted agent API, repairs the contact fields after an interrupted
+response, and lets the Sales consumer acknowledge its cursor only after the version 2 receipt is
+durable. It does not send WhatsApp messages or enable the API by itself. See
+[`docs/native-whatsapp-crm-contract.md`](../../docs/native-whatsapp-crm-contract.md) for routes,
+scopes, retry behavior, migration steps, and the separate no-reply report workflow. Production
+flags and migrations remain explicit operator actions.
+
 1. Copy this directory to `~/.hermes/plugins/trouidees-crm/` (the plugin
    loader expects a flat directory with `plugin.yaml` and `__init__.py` at
    its root):
