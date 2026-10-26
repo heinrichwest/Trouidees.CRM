@@ -270,6 +270,12 @@ class CRMClient:
         url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}"
         return self._request("PATCH", url, patch)
 
+    def put_lead_research(self, lead_id: str, research: dict) -> dict:
+        if not lead_id or not isinstance(research, dict):
+            raise ValueError("lead_id and research are required")
+        url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}/research"
+        return self._request("PUT", url, {"research": research})
+
     def _request(self, method: str, url: str, payload: Optional[dict] = None) -> dict:
         request = urllib.request.Request(
             url,

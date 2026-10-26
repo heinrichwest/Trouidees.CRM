@@ -15,6 +15,7 @@ gate.
 | `PATCH /api/agent/outreach/claims/:id` | `outreach:claim` | Mark a reservation submitted with a stable gateway `jobKey`, or release it only when delivery cannot occur. |
 | `GET /api/agent/outreach/quota` | `outreach:read` | Read Johannesburg-day delivered and outstanding capacity for the authenticated key label. |
 | `GET /api/agent/outreach/resolve-contact?contact=...` | `leads:search` | Resolve an exact normalized contact only when one visible lead matches. |
+| `PUT /api/agent/leads/:id/research` | `leads:research:write` | Save Hermes-researched facts and public source URLs for an unassigned or agent-visible lead. |
 | `POST /api/agent/leads/:id/conversations` with `nativeDelivery` | `conversations:write` and `outreach:write` | Persist one confirmed delivered outgoing WhatsApp message. |
 | `PATCH /api/agent/leads/:id` with `{ "nativeConversationId": "..." }` | `leads:update:limited` and `outreach:write` | Repair Contacted fields after the conversation has committed. |
 | `GET /api/agent/outreach/no-reply-due` | `outreach:read` | Read due first contacts and separately identify records without source delivery time. |
@@ -24,6 +25,16 @@ Agent identity and the current time come from the authenticated server
 context. A caller cannot choose the label or business clock. Existing keys
 keep their stored scopes; an administrator must deliberately issue keys with
 the additional scopes.
+
+Hermes research is submitted as `{ "research": { "researchedAt": "...",
+"ready": true, "research": { "confidence": "...", "angle": "...",
+"dossierRef": null, "facts": [{ "text": "...", "sourceUrl": "https://..." }] } }`.
+The server derives phone usability from the saved CRM lead. The CRM rejects an
+attempt to research a lead hidden by ownership rules, validates HTTP(S) source
+URLs and research limits, and independently prevents readiness when the lead
+is assigned, DNC, already contacted, or otherwise ineligible. Saving research
+does not assign or contact a lead. Hermes performs research; the CRM does not
+run Firecrawl batch scraping.
 
 ## Reservation and delivery payloads
 
@@ -120,13 +131,12 @@ generic no-reply field.
 - The eight-send guarantee applies only when every native cold-send path
   obtains and submits a matching reservation. Existing upstream send paths
   are outside this guarantee until a separately authorized cutover.
-- Manual lead enrichment and ready research remain CRM administrator work.
-  Hosted-native nightly processing must consume those saved dossiers and
-  must not run local research or select outside the shared ready pool.
+- Hermes writes sourced lead research through the scoped API. Hosted-native
+  nightly processing consumes those saved dossiers and must not select outside
+  the shared ready pool.
 - Capacity shortfalls must report delivered, pending, target, and shortfall
   separately. Drafts, accepted jobs, and held jobs are not deliveries.
-- Apply `scripts/migrations/2026-10-25-native-whatsapp-crm.sql`,
-  `scripts/migrations/2026-10-25-crm-enrichment-batches.sql`, and
+- Apply `scripts/migrations/2026-10-25-native-whatsapp-crm.sql` and
   `scripts/migrations/2026-10-26-native-no-reply.sql` only later through the
   reviewed migration procedure against the intended database. This work
   applied migrations only to a disposable local PostgreSQL database.

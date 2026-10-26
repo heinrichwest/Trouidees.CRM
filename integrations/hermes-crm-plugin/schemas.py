@@ -158,6 +158,26 @@ CRM_UPDATE_LEAD_SCHEMA = {
     }, "required": ["lead_id", "fields"], "additionalProperties": False},
 }
 
+CRM_PUT_LEAD_RESEARCH_SCHEMA = {
+    "name": "crm_put_lead_research",
+    "description": (
+        "Save Hermes-researched public facts and source URLs to a visible CRM lead. "
+        "Use only after researching the lead; include concise sourced facts and a timestamp. "
+        "The CRM decides whether the lead is eligible for the ready pool."
+    ),
+    "parameters": {"type": "object", "properties": {
+        "lead_id": {"type": "string", "description": "CRM lead ID."},
+        "researched_at": {"type": "string", "description": "ISO 8601 timestamp for this research."},
+        "ready": {"type": "boolean", "description": "Whether the sourced research supports outreach readiness."},
+        "confidence": {"type": "string", "description": "Research confidence, up to 50 characters."},
+        "angle": {"type": "string", "description": "A concise, evidence-based outreach angle, up to 200 characters."},
+        "dossier_ref": {"type": ["string", "null"], "description": "Optional shared dossier reference, never a local filesystem path."},
+        "facts": {"type": "array", "items": {"type": "object", "properties": {
+            "text": {"type": "string"}, "source_url": {"type": "string", "description": "HTTP(S) page URL supporting this fact."}
+        }, "required": ["text", "source_url"], "additionalProperties": False}},
+    }, "required": ["lead_id", "researched_at", "ready", "confidence", "angle", "facts"], "additionalProperties": False},
+}
+
 
 
 CRM_GET_ME_SCHEMA = {

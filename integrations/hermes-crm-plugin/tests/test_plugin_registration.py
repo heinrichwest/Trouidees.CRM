@@ -73,7 +73,7 @@ class PluginRegistrationTests(unittest.TestCase):
             "crm_pending_syncs", "crm_queue_session", "crm_commit_sync",
             "crm_search_leads", "crm_get_lead", "crm_get_me", "crm_create_lead",
             "crm_get_activity", "crm_get_stats", "crm_assign_self",
-            "crm_add_note", "crm_update_lead", "crm_get_conversations",
+            "crm_add_note", "crm_update_lead", "crm_put_lead_research", "crm_get_conversations",
             "crm_claim_ready", "crm_update_claim", "crm_get_outreach_quota",
         })
 

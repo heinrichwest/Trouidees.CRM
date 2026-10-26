@@ -1,6 +1,6 @@
 ---
 name: crm-writeback
-description: Write every completed WhatsApp exchange back to the CRM as a verbatim transcript plus a separate summary, for leads this agent owns.
+description: Research visible CRM leads with public sources and save sourced facts, and write completed WhatsApp exchanges back as verbatim transcripts plus separate summaries.
 ---
 
 # CRM Write-Back
@@ -40,6 +40,14 @@ from each other.
   Notes are append-only and distinct from the WhatsApp transcript and summary.
 - If CRM conversation history is available, use `crm_get_conversations` only
   for a lead assigned to this agent. Keep it distinct from the current session.
+
+## Researching and saving a lead
+
+- Use `crm_search_leads` and `crm_get_lead` to identify a visible lead before researching it. Do not research or write to a lead assigned to someone else.
+- Research the organization with the available Hermes research and browsing tools. Prefer official school or company pages and other reliable public sources. Do not use the CRM's removed website-scraping batch workflow.
+- Save concise, verifiable facts with the exact public page URL that supports each fact by calling `crm_put_lead_research`. Do not submit uncited claims, guesses, or private details. If no reliable source can be found, save `ready: false` with no facts and explain the limitation in the research angle.
+- Use the current ISO timestamp for `researched_at`. Keep the angle evidence-based and concise. The CRM derives whether the stored phone number is usable and independently checks ownership, status, DNC and prior-contact eligibility before publishing a lead to the shared ready pool.
+- A saved research result does not change lead ownership, sales status, or contact history. Do not claim that a phone number is WhatsApp-verified.
 
 ## When to act
 

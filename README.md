@@ -49,20 +49,24 @@ To migrate local CRM data after deployment, run `scripts/seed-neon.mjs` with `AP
 
 The scoped Andrew conversation write-back API is disabled by default. For its additive Neon migration, staging checks, admin key setup, and controlled enable/rollback steps, see [docs/agent-writeback-rollout.md](docs/agent-writeback-rollout.md). Do not set `AGENT_API_ENABLED=1` until the separate Hermes integration is ready.
 
-### CRM lead enrichment migrations
+### Hermes lead research
 
-Vercel deployments do not apply Neon schema migrations. Before using the CRM lead-enrichment UI,
-apply these migrations in order against the same Neon database configured as the deployment's
-`DATABASE_URL`:
+Hermes researches visible CRM leads and saves sourced facts through the scoped
+`crm_put_lead_research` plugin tool. The CRM validates the source URLs and independently
+applies lead eligibility rules before making a researched lead available to native outreach.
+The CRM does not scrape lead websites in batch.
+
+Vercel deployments do not apply Neon schema migrations. For the shared research and native
+outreach schema, apply this migration against the same Neon database configured as the
+deployment's `DATABASE_URL`:
 
 ```bash
 node --env-file-if-exists=.env scripts/migrate-neon.mjs scripts/migrations/2026-10-25-native-whatsapp-crm.sql
-node --env-file-if-exists=.env scripts/migrate-neon.mjs scripts/migrations/2026-10-25-crm-enrichment-batches.sql
 ```
 
 Check which database `DATABASE_URL` points to before running the commands. The first migration
-creates the shared lead-research schema and write function; the second creates the durable
-enrichment batches and their database functions. Both migrations run transactionally.
+creates the shared lead-research schema and write function. The older batch migration remains
+in the repository as migration history; the application no longer uses those batch tables.
 
 ## Research modes and cost control
 
