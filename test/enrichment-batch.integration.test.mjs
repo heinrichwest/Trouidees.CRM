@@ -16,7 +16,7 @@ test("durable enrichment batches replay saved results and fence attempts", {
   try {
     await db.sql("INSERT INTO app_users (id,email,password_hash,role) VALUES ($1,$2,'x','admin')", [actor, `${actor}@example.test`]);
     for (const id of leads) {
-      const data = { id, leadType: "Enrichment integration", name: id, assignedTo: "", status: "New", phone: "0821234567", website: "https://example.test" };
+      const data = { id, leadType: "Enrichment integration", name: id, assignedTo: "", status: "New", lastContactedAt: "", phone: "0821234567", website: "https://example.test" };
       await db.sql("INSERT INTO crm_leads (id,lead_type,data) VALUES ($1,$2,$3::jsonb)", [id, data.leadType, JSON.stringify(data)]);
     }
     const batch = await batches.create(actor, operationKey, leads);
