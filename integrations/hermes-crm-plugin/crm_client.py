@@ -104,6 +104,9 @@ class CRMClient:
         messages: list,
         summary: str,
         idempotency_key: str,
+        *,
+        occurred_at: Optional[str] = None,
+        native_delivery: Optional[dict] = None,
     ) -> dict:
         if not lead_id:
             raise ValueError("lead_id is required")
@@ -123,6 +126,15 @@ class CRMClient:
             "summary": summary,
             "idempotencyKey": idempotency_key,
         }
+        if occurred_at is not None or native_delivery is not None:
+            payload["occurredAt"] = _to_crm_timestamp(occurred_at)
+        if native_delivery is not None:
+            if not isinstance(native_delivery, dict) or native_delivery.get("state") != "delivered":
+                raise ValueError("native_delivery must describe a confirmed delivered event")
+            claim_id = native_delivery.get("claimId", native_delivery.get("claim_id"))
+            if claim_id is not None and not isinstance(claim_id, str):
+                raise ValueError("native_delivery claim ID must be a string or None")
+            payload["nativeDelivery"] = {"state": "delivered", "claimId": claim_id}
 
         url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}/conversations"
         return self._request("POST", url, payload)
@@ -177,6 +189,47 @@ class CRMClient:
 
     def get_stats(self) -> dict:
         return self._request("GET", f"{self.base_url}/api/agent/stats")
+
+    def claim_ready(self, request_key: str) -> dict:
+        if not isinstance(request_key, str) or not request_key.strip() or len(request_key) > 200:
+            raise ValueError("request_key must contain 1 to 200 nonblank characters")
+        return self._request("POST", f"{self.base_url}/api/agent/outreach/claim", {"requestKey": request_key})
+
+    def update_claim(self, claim_id: str, action: dict) -> dict:
+        if not claim_id or not isinstance(action, dict):
+            raise ValueError("claim_id and an action object are required")
+        url = f"{self.base_url}/api/agent/outreach/claims/{_quote_path_segment(claim_id)}"
+        return self._request("PATCH", url, action)
+
+    def get_outreach_quota(self) -> dict:
+        return self._request("GET", f"{self.base_url}/api/agent/outreach/quota")
+
+    def resolve_contact(self, contact: str) -> dict:
+        if not isinstance(contact, str) or not contact.strip():
+            raise ValueError("contact is required")
+        query = urllib.parse.urlencode({"contact": contact})
+        return self._request("GET", f"{self.base_url}/api/agent/outreach/resolve-contact?{query}")
+
+    def finalize_delivery(self, lead_id: str, conversation_id: str) -> dict:
+        if not lead_id or not conversation_id:
+            raise ValueError("lead_id and conversation_id are required")
+        url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}"
+        return self._request("PATCH", url, {"nativeConversationId": conversation_id})
+
+    def list_no_reply_due(self, cursor: Optional[str] = None, limit: int = 100) -> dict:
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        params = {"limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
+        query = urllib.parse.urlencode(params)
+        return self._request("GET", f"{self.base_url}/api/agent/outreach/no-reply-due?{query}")
+
+    def record_no_reply(self, lead_id: str, first_conversation_id: str) -> dict:
+        if not lead_id or not first_conversation_id:
+            raise ValueError("lead_id and first_conversation_id are required")
+        url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}/no-reply"
+        return self._request("POST", url, {"firstConversationId": first_conversation_id})
 
     def list_conversations(self, lead_id: str) -> dict:
         if not lead_id:

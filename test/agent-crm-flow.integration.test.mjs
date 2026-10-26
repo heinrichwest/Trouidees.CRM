@@ -66,7 +66,7 @@ test("Andrew API searches contact details, claims a lead, and writes CRM follow-
 
     const assigned = await call("POST", `/api/agent/leads/${leadId}/assign-self`, {});
     assert.equal(assigned.status, 200);
-    assert.equal(assigned.body.lead.assignedTo, "Andrew");
+    assert.equal(assigned.body.lead.assignedTo, "Andrew integration test");
 
     const update = await call("PATCH", `/api/agent/leads/${leadId}`, {
       status: "Contacted",

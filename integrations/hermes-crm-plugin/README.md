@@ -12,6 +12,13 @@ This plugin never sends WhatsApp messages and never writes directly to
 Neon/production CRM infrastructure — it only calls the scoped CRM agent API
 over HTTPS with a bearer key.
 
+The native shared-pool writeback adapter is dormant infrastructure. It does
+not install a send hook or schedule outreach. Native routes require the CRM
+operator to enable `AGENT_NATIVE_OUTREACH_ENABLED=1`; do not enable it until
+the companion SALES job bindings and native send gate have been reviewed and
+cut over separately. See [the native CRM contract](../../docs/native-whatsapp-crm-contract.md)
+for the route, payload, recovery, capacity, and no-reply rules.
+
 ## How it works
 
 1. `on_session_finalize` (explicit close) and the 24-hour idle scanner each
@@ -146,6 +153,17 @@ behavior.
 
 ## Install
 
+### Native supervised WhatsApp writeback
+
+The optional native adapter records a transcript only for confirmed delivered outcomes. It freezes
+the lead, claim, rendered body and segment identity in profile-local SQLite, submits the exact
+outgoing message through the hosted agent API, repairs the contact fields after an interrupted
+response, and lets the Sales consumer acknowledge its cursor only after the version 2 receipt is
+durable. It does not send WhatsApp messages or enable the API by itself. See
+[`docs/native-whatsapp-crm-contract.md`](../../docs/native-whatsapp-crm-contract.md) for routes,
+scopes, retry behavior, migration steps, and the separate no-reply report workflow. Production
+flags and migrations remain explicit operator actions.
+
 1. Copy this directory to `~/.hermes/plugins/trouidees-crm/` (the plugin
    loader expects a flat directory with `plugin.yaml` and `__init__.py` at
    its root):
@@ -172,7 +190,7 @@ skill text, shell history, or committed files:
 | Variable | Secret | Purpose |
 |---|---|---|
 | `CRM_API_BASE_URL` | No | Base URL of the CRM agent API, e.g. `https://crm.example.com` (no trailing slash). |
-| `CRM_AGENT_API_KEY` | Yes | Bearer key for Andrew's agent identity. It needs `leads:search`, `leads:read`, `leads:assign:self`, `conversations:read`, `conversations:write`, `notes:write`, and `leads:update:limited`; add `dnc:set` if Andrew should record DNC requests. Obtained from an admin via `POST /api/admin/agent-keys`; the secret is shown once at creation. |
+| `CRM_AGENT_API_KEY` | Yes | Bearer key for the authenticated agent identity. Existing tools need `leads:search`, `leads:read`, `leads:assign:self`, `conversations:read`, `conversations:write`, `notes:write`, and `leads:update:limited`; add `dnc:set` for DNC requests. Dormant native operations additionally need `outreach:claim`, `outreach:read`, and `outreach:write`. Obtained from an admin via `POST /api/admin/agent-keys`; the secret is shown once at creation. |
 | `CRM_API_TIMEOUT_SECONDS` | No | Optional. Defaults to `15`. |
 
 This plugin never reads any Neon/database credential; it only ever talks to

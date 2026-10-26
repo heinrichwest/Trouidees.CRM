@@ -39,6 +39,18 @@ class FakeCRM:
         self.calls.append(("update_lead", lead_id, fields))
         return {"lead": {"id": lead_id, **fields}}
 
+    def claim_ready(self, request_key):
+        self.calls.append(("claim_ready", request_key))
+        return {"claim":{"id":"claim-1"},"quota":{"remaining":7}}
+
+    def update_claim(self, claim_id, action):
+        self.calls.append(("update_claim", claim_id, action))
+        return {"claim":{"id":claim_id, **action}}
+
+    def get_outreach_quota(self):
+        self.calls.append(("get_outreach_quota",))
+        return {"quota":{"target":8,"remaining":8}}
+
 
 def result_json(value):
     return json.loads(value)
@@ -110,6 +122,24 @@ class CRMLeadToolTests(unittest.TestCase):
         self.assertIn("error", result)
         self.assertNotIn("private-key", json.dumps(result))
         self.assertNotIn("customer-message", json.dumps(result))
+
+    def test_outreach_tools_claim_transition_and_quota(self):
+        with mock.patch.object(tools, "_build_client", return_value=self.client):
+            missing = result_json(tools.crm_claim_ready({}))
+            claim = result_json(tools.crm_claim_ready({"request_key":" batch-1-slot-1 "}))
+            invalid = result_json(tools.crm_update_claim({"claim_id":"claim-1", "action":{"state":"delivered"}}))
+            updated = result_json(tools.crm_update_claim({"claim_id":"claim-1", "action":{"state":"submitted", "jobKey":"job-1"}}))
+            quota = result_json(tools.crm_get_outreach_quota({}))
+        self.assertIn("request_key", missing["error"])
+        self.assertEqual(claim["claim"]["id"], "claim-1")
+        self.assertIn("Unsupported", invalid["error"])
+        self.assertEqual(updated["claim"]["state"], "submitted")
+        self.assertEqual(quota["quota"]["target"], 8)
+        self.assertEqual(self.client.calls, [
+            ("claim_ready", " batch-1-slot-1 "),
+            ("update_claim", "claim-1", {"state":"submitted", "jobKey":"job-1"}),
+            ("get_outreach_quota",),
+        ])
 
 
 if __name__ == "__main__":

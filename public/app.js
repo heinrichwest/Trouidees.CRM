@@ -1,4 +1,5 @@
 import { createSelectedActivityLoader } from "./activity-loader.mjs";
+import { initCrmEnrichment } from "./crm-enrichment.mjs";
 
 const $ = (id) => document.getElementById(id);
 const loadSelectedActivity = createSelectedActivityLoader();
@@ -19,6 +20,7 @@ let leadMapInfoWindow = null;
 let leadMapMarkers = [];
 let googleMapsPromise = null;
 const crmPageSize = 100;
+let crmEnrichment = null;
 
 const escapeHtml = (value = "") => String(value).replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
 const safeUrl = (value = "") => { try { const url = new URL(value); return ["http:","https:"].includes(url.protocol) ? escapeHtml(url.href) : ""; } catch { return ""; } };
@@ -635,7 +637,9 @@ function renderCrm() {
   $("crmPageMeta").textContent = `Page ${crmPage} of ${pageCount}`;
   $("crmPrevious").disabled = crmPage <= 1; $("crmNext").disabled = crmPage >= pageCount;
   $("crmPagination").classList.toggle("hidden", leads.length <= crmPageSize);
-  $("crmTable").querySelector("tbody").innerHTML = visibleLeads.length ? visibleLeads.map((lead) => `<tr><td>${escapeHtml(lead.leadType)}</td><td><strong>${escapeHtml(lead.name)}</strong><br><small>${escapeHtml([lead.role, lead.organization, lead.location, lead.services && `Subjects/services: ${lead.services}`].filter(Boolean).join(" · "))}</small></td><td>${escapeHtml(lead.email || "—")}<br><small>${escapeHtml(lead.phone || "")}</small></td><td><span class="status-chip">${escapeHtml(lead.status)}</span><br><span class="priority-chip ${String(lead.priority || "Normal").toLowerCase()}">${escapeHtml(lead.priority || "Normal")}</span></td><td class="${lead.nextFollowUpAt && lead.nextFollowUpAt < today ? "followup-overdue" : ""}">${escapeHtml(lead.nextFollowUpAt || "—")}</td><td>${escapeHtml(lead.assignedTo || "Unassigned")}</td><td class="notes-cell">${escapeHtml(lead.feedback || lead.comments || "—")}</td><td><button class="button secondary edit-lead" data-id="${lead.id}" type="button">Edit</button></td></tr>`).join("") : '<tr><td colspan="8" class="not-found">No leads match these filters.</td></tr>';
+  const selectionCell = signedInUser?.role === "admin" ? (lead) => `<td class="admin-only crm-enrichment-cell"><input class="crm-enrichment-check" type="checkbox" aria-label="Select ${escapeHtml(lead.name)} for enrichment" value="${escapeHtml(lead.id)}"></td>` : () => '<td class="hidden"></td>';
+  $("crmTable").querySelector("tbody").innerHTML = visibleLeads.length ? visibleLeads.map((lead) => `<tr data-lead-id="${escapeHtml(lead.id)}">${selectionCell(lead)}<td>${escapeHtml(lead.leadType)}</td><td><strong>${escapeHtml(lead.name)}</strong><br><small>${escapeHtml([lead.role, lead.organization, lead.location, lead.services && `Subjects/services: ${lead.services}`].filter(Boolean).join(" · "))}</small></td><td>${escapeHtml(lead.email || "—")}<br><small>${escapeHtml(lead.phone || "")}</small></td><td><span class="status-chip">${escapeHtml(lead.status)}</span><br><span class="priority-chip ${String(lead.priority || "Normal").toLowerCase()}">${escapeHtml(lead.priority || "Normal")}</span></td><td class="${lead.nextFollowUpAt && lead.nextFollowUpAt < today ? "followup-overdue" : ""}">${escapeHtml(lead.nextFollowUpAt || "—")}</td><td>${escapeHtml(lead.assignedTo || "Unassigned")}</td><td class="notes-cell">${escapeHtml(lead.feedback || lead.comments || "—")}</td><td><button class="button secondary edit-lead" data-id="${lead.id}" type="button">Edit</button></td></tr>`).join("") : '<tr><td colspan="9" class="not-found">No leads match these filters.</td></tr>';
+  crmEnrichment?.setVisibleLeads(visibleLeads);
 }
 
 [$("crmTypeFilter"), $("crmStatusFilter"), $("crmFollowUpFilter"), $("crmSort")].forEach((input) => input.addEventListener("change", () => { crmPage = 1; renderCrm(); }));
@@ -781,6 +785,11 @@ function applyUser(user) {
   signedInUser = user;
   const admin = user?.role === "admin";
   document.querySelectorAll(".admin-only").forEach((element) => element.classList.toggle("hidden", !admin));
+  if (admin && !crmEnrichment) {
+    const root = $("crmEnrichmentPanel");
+    root.dataset.adminId = user.id;
+    crmEnrichment = initCrmEnrichment({ root, onResearchChanged: () => loadCrm().catch(() => {}) });
+  }
   $("logoutButton").classList.toggle("hidden", !user);
   $("backToResearch").textContent = admin ? "Back to research" : "Back to CRM";
 }

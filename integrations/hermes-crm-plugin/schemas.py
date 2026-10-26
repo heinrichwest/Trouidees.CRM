@@ -204,3 +204,34 @@ CRM_GET_STATS_SCHEMA = {
     "description": "Return counts of this agent's assigned leads grouped by status.",
     "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
 }
+
+CRM_CLAIM_READY_SCHEMA = {
+    "name": "crm_claim_ready",
+    "description": (
+        "Claim the next CRM research-ready lead for this authenticated agent. "
+        "Use a stable, persisted request_key for each intended slot and reuse "
+        "that exact key after any timeout; the CRM returns sourced research and quota."
+    ),
+    "parameters": {"type":"object", "properties": {
+        "request_key":{"type":"string", "description":"Opaque stable key (1–200 characters), such as a durable batch-and-slot ID."},
+    }, "required":["request_key"], "additionalProperties":False},
+}
+
+CRM_UPDATE_CLAIM_SCHEMA = {
+    "name": "crm_update_claim",
+    "description": "Mark a reservation submitted with its stable gateway job key, or release it only when no delivery can occur.",
+    "parameters": {"type":"object", "properties": {
+        "claim_id":{"type":"string", "description":"Claim UUID returned by crm_claim_ready."},
+        "action":{"type":"object", "properties": {
+            "state":{"type":"string", "enum":["submitted", "released"]},
+            "jobKey":{"type":"string", "description":"Stable gateway job key required for submitted."},
+            "reason":{"type":"string", "enum":["not_submitted", "terminal_no_delivery"], "description":"Release reason required for released."},
+        }, "additionalProperties":False},
+    }, "required":["claim_id", "action"], "additionalProperties":False},
+}
+
+CRM_GET_OUTREACH_QUOTA_SCHEMA = {
+    "name":"crm_get_outreach_quota",
+    "description":"Read this authenticated agent label's Johannesburg-day delivered and outstanding first-contact capacity.",
+    "parameters":{"type":"object", "properties":{}, "required":[], "additionalProperties":False},
+}

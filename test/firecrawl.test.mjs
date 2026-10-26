@@ -66,6 +66,59 @@ test("mapAndScrape selects relevant pages and returns page content", async () =>
   assert.ok(!scrapedUrls.includes("https://example.com/privacy"));
 });
 
+test("strict map-and-scrape reports provider usage without inventing missing credits", async () => {
+  let calls = 0;
+  const client = new FirecrawlClient("test-key", async (url) => {
+    calls += 1;
+    if (url.pathname === "/v2/map") return Response.json({ success: true, links: [{ url: "https://example.com/about" }] });
+    return Response.json({ success: true, creditsUsed: 2, data: { markdown: "About", metadata: { sourceURL: "https://example.com/about" } } });
+  });
+  const result = await client.mapAndScrape("https://example.com/", 1, [], () => {}, { strictAttempt: true, deadlineAt: Date.now() + 1000, reportUsage: true });
+  assert.deepEqual(result.usage, { reportedTotal: null, reportedSubtotal: 2, complete: false });
+  assert.equal(result.creditsUsed, null);
+  assert.equal(calls, 2);
+});
+
+test("strict map-and-scrape preserves an explicitly reported zero", async () => {
+  const client = new FirecrawlClient("test-key", async (url) => url.pathname === "/v2/map"
+    ? Response.json({ success: true, creditsUsed: 0, links: [{ url: "https://example.com/about" }] })
+    : Response.json({ success: true, creditsUsed: 0, data: { markdown: "About", metadata: { sourceURL: "https://example.com/about" } } }));
+  const result = await client.mapAndScrape("https://example.com/", 1, [], () => {}, { strictAttempt: true, deadlineAt: Date.now() + 1000, reportUsage: true });
+  assert.deepEqual(result.usage, { reportedTotal: 0, reportedSubtotal: 0, complete: true });
+  assert.equal(result.creditsUsed, 0);
+});
+
+test("strict paid operations do not retry an ambiguous map failure or exceed the deadline", async () => {
+  let calls = 0;
+  const client = new FirecrawlClient("test-key", async () => { calls += 1; return new Response("{}", { status: 503, headers: { "retry-after": "30" } }); });
+  await assert.rejects(client.mapAndScrape("https://example.com/", 1, [], () => {}, { strictAttempt: true, deadlineAt: Date.now() + 100, reportUsage: true }));
+  assert.equal(calls, 1);
+  await assert.rejects(client.request("/v2/map", { method: "POST", body: {}, maxAttempts: 1, deadlineAt: Date.now() - 1 }));
+  assert.equal(calls, 1);
+});
+
+test("an excessive Retry-After is rejected before sleeping past the operation deadline", async () => {
+  let calls = 0;
+  const client = new FirecrawlClient("test-key", async () => {
+    calls += 1;
+    return new Response("{}", { status: 429, headers: { "retry-after": "30" } });
+  });
+  await assert.rejects(client.request("/v2/map", { maxAttempts: 2, deadlineAt: Date.now() + 50 }));
+  assert.equal(calls, 1);
+});
+
+test("existing Firecrawl callers retain bounded transient retries", async () => {
+  let calls = 0;
+  const client = new FirecrawlClient("test-key", async () => {
+    calls += 1;
+    return calls === 1
+      ? new Response("{}", { status: 503, headers: { "retry-after": "0" } })
+      : Response.json({ success: true, data: [] });
+  });
+  assert.deepEqual(await client.request("/v2/map"), { success: true, data: [] });
+  assert.equal(calls, 2);
+});
+
 test("overnight discovery checkpoints results after every completed search", async () => {
   let stopped = false;
   const checkpoints = [];

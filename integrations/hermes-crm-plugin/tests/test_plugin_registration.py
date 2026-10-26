@@ -52,6 +52,8 @@ class PluginManifestTests(unittest.TestCase):
     def test_declares_exact_tool_and_hook_names(self):
         for tool_name in ("crm_pending_syncs", "crm_queue_session", "crm_commit_sync"):
             self.assertIn(f"- {tool_name}", self.manifest_text)
+        for tool_name in ("crm_claim_ready", "crm_update_claim", "crm_get_outreach_quota"):
+            self.assertIn(f"- {tool_name}", self.manifest_text)
         self.assertIn("- on_session_finalize", self.manifest_text)
 
     def test_declares_required_env_vars_without_secret_values(self):
@@ -72,6 +74,7 @@ class PluginRegistrationTests(unittest.TestCase):
             "crm_search_leads", "crm_get_lead", "crm_get_me", "crm_create_lead",
             "crm_get_activity", "crm_get_stats", "crm_assign_self",
             "crm_add_note", "crm_update_lead", "crm_get_conversations",
+            "crm_claim_ready", "crm_update_claim", "crm_get_outreach_quota",
         })
 
     def test_registers_on_session_finalize_hook(self):

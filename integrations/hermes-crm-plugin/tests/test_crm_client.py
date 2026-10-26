@@ -74,6 +74,30 @@ class SubmitConversationTests(unittest.TestCase):
         )
         self.assertIn("summary", body)
 
+    def test_native_optional_arguments_add_exact_crm_keys_and_keep_source_time_null(self):
+        client = CRMClient("https://crm.example.com", "secret-key")
+        captured = {}
+        with mock.patch.object(urllib.request, "urlopen", lambda request, timeout=None: (captured.update(request=request) or _FakeResponse({}))):
+            client.submit_conversation(
+                "lead-1", "native-whatsapp:v1:abc",
+                [{"direction":"outbound", "speaker":"Andrew", "body":"  Hello 🛰️\n", "timestamp":None}],
+                "WhatsApp message delivered", "native-whatsapp:v1:abc",
+                occurred_at=None, native_delivery={"state":"delivered", "claimId":None},
+            )
+        body = json.loads(captured["request"].data.decode("utf-8"))
+        self.assertIsNone(body["occurredAt"])
+        self.assertEqual(body["nativeDelivery"], {"state":"delivered", "claimId":None})
+        self.assertEqual(body["messages"][0]["body"], "  Hello 🛰️\n")
+
+    def test_legacy_submit_omits_both_native_keys(self):
+        client = CRMClient("https://crm.example.com", "secret-key")
+        captured = {}
+        with mock.patch.object(urllib.request, "urlopen", lambda request, timeout=None: (captured.update(request=request) or _FakeResponse({}))):
+            client.submit_conversation("lead-1", "seg-1", MESSAGES, "Summary", "idem-1")
+        body = json.loads(captured["request"].data.decode("utf-8"))
+        self.assertNotIn("nativeDelivery", body)
+        self.assertNotIn("occurredAt", body)
+
     def test_wire_payload_matches_crm_contract_exactly_and_preserves_body_and_order(self):
         """lib/agent-api.mjs requires direction in {"incoming","outgoing"},
         speaker in {"contact","andrew"}, and timestamp as a valid ISO string
@@ -369,6 +393,56 @@ class LeadOperationsTests(unittest.TestCase):
         with mock.patch.object(urllib.request, "urlopen", fake_urlopen):
             with self.assertRaises(CRMValidationError):
                 self.client.list_conversations("lead-1")
+
+
+class NativeOutreachClientTests(unittest.TestCase):
+    def setUp(self):
+        self.client = CRMClient("https://crm.example.com", "agent-secret")
+        self.requests = []
+
+    def _respond(self, body):
+        def fake_urlopen(request, timeout=None):
+            self.requests.append((request, timeout))
+            return _FakeResponse(body)
+        return fake_urlopen
+
+    def test_claim_ready_uses_explicit_stable_request_key(self):
+        expected = {"claim":{"id":"claim-1"},"lead":{"id":"lead-1"}}
+        with mock.patch.object(urllib.request, "urlopen", self._respond(expected)):
+            result = self.client.claim_ready("batch-1-slot-1")
+        request, _ = self.requests[0]
+        self.assertEqual(result, expected)
+        self.assertEqual(request.get_method(), "POST")
+        self.assertTrue(request.full_url.endswith("/api/agent/outreach/claim"))
+        self.assertEqual(json.loads(request.data), {"requestKey":"batch-1-slot-1"})
+
+    def test_claim_transition_quota_contact_resolution_and_finalization_use_exact_routes(self):
+        with mock.patch.object(urllib.request, "urlopen", self._respond({"ok":True})):
+            self.client.update_claim("claim-1", {"state":"submitted", "jobKey":"job-1"})
+            self.client.get_outreach_quota()
+            self.client.resolve_contact("+27 82 123 4567")
+            self.client.finalize_delivery("lead-1", "conversation-1")
+        requests = [request for request, _ in self.requests]
+        self.assertEqual([(request.get_method(), urllib.parse.urlparse(request.full_url).path) for request in requests], [
+            ("PATCH", "/api/agent/outreach/claims/claim-1"),
+            ("GET", "/api/agent/outreach/quota"),
+            ("GET", "/api/agent/outreach/resolve-contact"),
+            ("PATCH", "/api/agent/leads/lead-1"),
+        ])
+        self.assertEqual(json.loads(requests[0].data), {"state":"submitted", "jobKey":"job-1"})
+        self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlparse(requests[2].full_url).query), {"contact":["+27 82 123 4567"]})
+        self.assertEqual(json.loads(requests[3].data), {"nativeConversationId":"conversation-1"})
+
+    def test_no_reply_routes_encode_cursor_and_post_bound_first_conversation(self):
+        with mock.patch.object(urllib.request, "urlopen", self._respond({"leads":[], "nextCursor":None})):
+            self.client.list_no_reply_due("opaque+/cursor", 25)
+            self.client.record_no_reply("lead/1", "323e4567-e89b-42d3-a456-426614174000")
+        requests = [request for request, _ in self.requests]
+        self.assertEqual(requests[0].get_method(), "GET")
+        self.assertIn("limit=25", requests[0].full_url)
+        self.assertIn("cursor=opaque%2B%2Fcursor", requests[0].full_url)
+        self.assertEqual(requests[1].full_url, "https://crm.example.com/api/agent/leads/lead%2F1/no-reply")
+        self.assertEqual(json.loads(requests[1].data), {"firstConversationId":"323e4567-e89b-42d3-a456-426614174000"})
 
 
 if __name__ == "__main__":

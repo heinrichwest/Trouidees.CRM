@@ -70,6 +70,18 @@ test("activity is chronological by message timestamp, keeps ties stable, and fol
   assert.equal(activity.find((item) => item.body === "Internal").type, "note");
 });
 
+test("activity serializes no-reply outcomes as outcome events, including later reply supersession", async () => {
+  const { store } = fakeStore((query) => {
+    if (query.includes("FROM crm_leads WHERE id")) return [{ data:{ id:leadId }, do_not_contact:false }];
+    if (query.includes("FROM lead_contact_outcomes")) return [{ id:"outcome-1", outcome:"no_reply", firstConversationId:"conversation-1",
+      occurredAt:"2026-10-26T08:15:00Z", supersededAt:"2026-10-26T09:00:00Z" }];
+    return [];
+  });
+  const activity = await store.listActivity(leadId);
+  assert.deepEqual(activity, [{ id:"outcome-1", type:"outcome", outcome:"no_reply", firstConversationId:"conversation-1",
+    occurredAt:"2026-10-26T08:15:00Z", supersededAt:"2026-10-26T09:00:00Z" }]);
+});
+
 test("Date timestamps retain milliseconds while unknown transcript messages stay in source flow", async () => {
   const { store } = fakeStore((query) => {
     if (query.includes("FROM crm_leads WHERE id")) return [{ data: { id: leadId }, do_not_contact: false }];
