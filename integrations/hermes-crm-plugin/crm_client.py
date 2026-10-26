@@ -216,6 +216,21 @@ class CRMClient:
         url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}"
         return self._request("PATCH", url, {"nativeConversationId": conversation_id})
 
+    def list_no_reply_due(self, cursor: Optional[str] = None, limit: int = 100) -> dict:
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        params = {"limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
+        query = urllib.parse.urlencode(params)
+        return self._request("GET", f"{self.base_url}/api/agent/outreach/no-reply-due?{query}")
+
+    def record_no_reply(self, lead_id: str, first_conversation_id: str) -> dict:
+        if not lead_id or not first_conversation_id:
+            raise ValueError("lead_id and first_conversation_id are required")
+        url = f"{self.base_url}/api/agent/leads/{_quote_path_segment(lead_id)}/no-reply"
+        return self._request("POST", url, {"firstConversationId": first_conversation_id})
+
     def list_conversations(self, lead_id: str) -> dict:
         if not lead_id:
             raise ValueError("lead_id is required")

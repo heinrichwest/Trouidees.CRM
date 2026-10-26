@@ -12,6 +12,10 @@ test("nextBusinessDayAt preserves local wall time across Friday and Monday", () 
   assert.equal(nextBusinessDayAt(new Date("2026-10-23T08:15:00.123Z")).toISOString(), "2026-10-26T08:15:00.123Z");
 });
 
+test("public holidays are treated as ordinary weekdays", () => {
+  assert.equal(nextBusinessDayAt(new Date("2026-12-24T08:15:00Z")).toISOString(), "2026-12-25T08:15:00.000Z");
+});
+
 test("nextBusinessDayAt rejects invalid dates", () => {
   assert.throws(() => nextBusinessDayAt(new Date("invalid")), RangeError);
 });

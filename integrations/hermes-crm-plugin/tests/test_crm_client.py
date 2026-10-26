@@ -433,6 +433,17 @@ class NativeOutreachClientTests(unittest.TestCase):
         self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlparse(requests[2].full_url).query), {"contact":["+27 82 123 4567"]})
         self.assertEqual(json.loads(requests[3].data), {"nativeConversationId":"conversation-1"})
 
+    def test_no_reply_routes_encode_cursor_and_post_bound_first_conversation(self):
+        with mock.patch.object(urllib.request, "urlopen", self._respond({"leads":[], "nextCursor":None})):
+            self.client.list_no_reply_due("opaque+/cursor", 25)
+            self.client.record_no_reply("lead/1", "323e4567-e89b-42d3-a456-426614174000")
+        requests = [request for request, _ in self.requests]
+        self.assertEqual(requests[0].get_method(), "GET")
+        self.assertIn("limit=25", requests[0].full_url)
+        self.assertIn("cursor=opaque%2B%2Fcursor", requests[0].full_url)
+        self.assertEqual(requests[1].full_url, "https://crm.example.com/api/agent/leads/lead%2F1/no-reply")
+        self.assertEqual(json.loads(requests[1].data), {"firstConversationId":"323e4567-e89b-42d3-a456-426614174000"})
+
 
 if __name__ == "__main__":
     unittest.main()
