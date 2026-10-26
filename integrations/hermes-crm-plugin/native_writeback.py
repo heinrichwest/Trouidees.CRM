@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Optional
 
 try:
@@ -15,6 +16,7 @@ except ImportError:
 
 
 _IGNORED = {"held", "approved", "scheduled", "accepted", "rejected", "failed", "unknown", "uncertain"}
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.IGNORECASE)
 
 
 class NativeWriteback:
@@ -41,8 +43,14 @@ class NativeWriteback:
             job_lead = event.get("lead_id")
         if binding is not None and not isinstance(binding, dict):
             raise ValueError("binding must be an object")
+        if binding is not None and set(binding) - {"lead_id", "claim_id"}:
+            raise ValueError("binding has unsupported fields")
         lead_id = binding.get("lead_id") if binding else None
         claim_id = binding.get("claim_id") if binding else None
+        if lead_id is not None and (not isinstance(lead_id, str) or not lead_id.strip()):
+            raise ValueError("lead_id must be a nonblank string")
+        if claim_id is not None and (not isinstance(claim_id, str) or not _UUID.fullmatch(claim_id)):
+            raise ValueError("claim_id must be a UUID or None")
         if lead_id and job_lead and lead_id != job_lead:
             raise ValueError("delivered outcome lead conflicts with its durable binding")
         if not lead_id:
@@ -56,6 +64,8 @@ class NativeWriteback:
                 if resolved.get("matchCount") != 1 or not resolved.get("leadId"):
                     raise ValueError("contact does not resolve to exactly one visible CRM lead")
                 lead_id = resolved["leadId"]
+        if not isinstance(lead_id, str) or not lead_id.strip():
+            raise ValueError("resolved lead ID must be a nonblank string")
 
         digest_input = json.dumps([self.namespace, self.account, outbox_id], ensure_ascii=False, separators=(",", ":"))
         digest = hashlib.sha256(digest_input.encode("utf-8")).hexdigest()

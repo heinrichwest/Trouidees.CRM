@@ -13,7 +13,7 @@ def main():
     request = json.load(sys.stdin)
     base_url = request.get("baseUrl", "")
     parsed = urllib.parse.urlparse(base_url)
-    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"} or not parsed.port:
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "::1"} or not parsed.port:
         raise ValueError("test bridge only permits an explicit loopback HTTP server")
     client = CRMClient(base_url, request["apiKey"])
     state = NativeDeliveryState(request["statePath"])

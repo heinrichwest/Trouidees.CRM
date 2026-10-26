@@ -60,7 +60,7 @@ class NativeWritebackTests(unittest.TestCase):
     def test_delivered_text_is_verbatim_and_replay_is_frozen(self):
         client = FakeClient()
         writer = self.adapter(client)
-        result = writer.apply(event(), {"lead_id": "lead-1", "claim_id": "claim-1"})
+        result = writer.apply(event(), {"lead_id": "lead-1", "claim_id": "223e4567-e89b-42d3-a456-426614174000"})
         self.assertTrue(result["applied"])
         saved = client.payloads[0][2][0]
         self.assertEqual(saved["body"], "  Hello 🛰️\n")
@@ -69,7 +69,7 @@ class NativeWritebackTests(unittest.TestCase):
         first_payload = client.payloads[0]
         restarted = NativeDeliveryState(os.path.join(self.tmp.name, "delivery.sqlite3"))
         replay = NativeWriteback(client, restarted, "namespace", "account", "Agent A")
-        replay.apply(event(), {"lead_id": "lead-1", "claim_id": "claim-1"})
+        replay.apply(event(), {"lead_id": "lead-1", "claim_id": "223e4567-e89b-42d3-a456-426614174000"})
         self.assertEqual(client.payloads[1], first_payload)
 
     def test_partial_write_repairs_after_process_restart(self):
