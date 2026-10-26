@@ -13,7 +13,6 @@ import { addLeadType, deleteCrmLead, deleteLeadType, importCrmLeads, listCrmLead
 import { AgentStore } from "./lib/agent-store.mjs";
 import { handleAgentAdminRequest, handleAgentRequest } from "./lib/agent-api.mjs";
 import { serveCrmStaticFile } from "./lib/crm-static-files.mjs";
-import { handleEnrichmentRequest } from "./lib/enrichment-api.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const publicRoot = join(root, "public");
@@ -24,7 +23,6 @@ const port = Number(process.env.PORT || 4173);
 const jobs = new Map();
 const neonStore = process.env.DATABASE_URL ? new NeonStore(process.env.DATABASE_URL) : null;
 const agentStore = neonStore ? new AgentStore(neonStore) : null;
-const enrichmentClient = process.env.FIRECRAWL_API_KEY ? new FirecrawlClient(process.env.FIRECRAWL_API_KEY) : null;
 
 const crmListLeads = () => neonStore ? neonStore.listLeads() : listCrmLeads(crmFile);
 const crmListMapLeads = async () => neonStore
@@ -482,10 +480,6 @@ export async function handleRequest(request, response, { serveFiles = true } = {
     }
 
     if (url.pathname.startsWith("/api/") && !user?.active) throw new RequestError("Sign in required.", 401);
-
-    if (url.pathname === "/api/crm/enrichment-batches" || url.pathname.startsWith("/api/crm/enrichment-batches/")) {
-      if (await handleEnrichmentRequest({ request, response, user, db: neonStore, client: enrichmentClient })) return;
-    }
 
     const activityMatch = /^\/api\/crm\/leads\/([^/]+)\/activity$/.exec(url.pathname);
     if (request.method === "GET" && activityMatch) {

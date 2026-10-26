@@ -411,3 +411,29 @@ def crm_update_lead(args: dict, client: Optional[CRMClient] = None, **kwargs) ->
     except Exception as exc:
         return _tool_error(exc)
 
+
+def crm_put_lead_research(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    lead_id = _required_text(args, "lead_id")
+    facts = args.get("facts")
+    if not lead_id:
+        return _tool_json({"error": "lead_id is required."})
+    if not isinstance(facts, list):
+        return _tool_json({"error": "facts must be a list."})
+    research = {
+        "researchedAt": args.get("researched_at"),
+        "ready": args.get("ready"),
+        "research": {
+            "confidence": args.get("confidence"),
+            "angle": args.get("angle"),
+            "dossierRef": args.get("dossier_ref"),
+            "facts": [{"text": fact.get("text"), "sourceUrl": fact.get("source_url")} for fact in facts if isinstance(fact, dict)],
+        },
+    }
+    if len(research["research"]["facts"]) != len(facts):
+        return _tool_json({"error": "Each fact must contain text and source_url."})
+    try:
+        return _tool_json((client or _build_client()).put_lead_research(lead_id, research))
+    except Exception as exc:
+        return _tool_error(exc)
+

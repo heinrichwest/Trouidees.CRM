@@ -3,8 +3,8 @@ name: trouidees-crm-writeback
 version: 0.1.0
 description: >-
   Browse and update Trouidees CRM leads owned by this agent, add internal notes, and
-  durably write completed WhatsApp exchanges as verbatim transcripts plus
-  separate summaries.
+  save Hermes-researched public facts with source URLs. It also durably writes
+  completed WhatsApp exchanges as verbatim transcripts plus separate summaries.
 author: Trouidees
 homepage: https://github.com/Trouidees/crm
 license: UNLICENSED
@@ -27,6 +27,7 @@ provides_tools:
   - crm_get_conversations
   - crm_add_note
   - crm_update_lead
+  - crm_put_lead_research
   - crm_claim_ready
   - crm_update_claim
   - crm_get_outreach_quota
@@ -42,11 +43,12 @@ requires_env:
     secret: false
   - name: CRM_AGENT_API_KEY
     description: >-
-      Bearer API key issued to this agent's identity by a CRM admin. It needs
-      leads:search, leads:read, leads:assign:self, conversations:read,
+      Bearer API key issued to this agent's identity by a CRM admin. Grant
+      leads:research:write to save Hermes research. Native outreach additionally
+      needs leads:search, leads:read, leads:assign:self, conversations:read,
       conversations:write, notes:write, leads:update:limited, outreach:claim,
-      outreach:read, and outreach:write scopes for native outreach. Add
-      dnc:set if this agent must record do-not-contact requests. Store in Hermes's
+      outreach:read, and outreach:write. Add dnc:set if this agent must record
+      do-not-contact requests. Store in Hermes's
       secret configuration, never in prompts, skills, or logs.
     secret: true
 
