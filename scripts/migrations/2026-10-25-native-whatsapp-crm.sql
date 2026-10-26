@@ -313,6 +313,7 @@ DECLARE
   claim_row lead_outreach_claims%ROWTYPE;
   lead_owner TEXT;
 BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('native-outreach-agent:' || p_agent, 0));
   SELECT * INTO claim_row FROM lead_outreach_claims WHERE id = p_claim_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'CLAIM_NOT_FOUND' USING ERRCODE = 'P0001'; END IF;
   IF claim_row.agent <> p_agent THEN RAISE EXCEPTION 'CLAIM_FORBIDDEN' USING ERRCODE = 'P0001'; END IF;
@@ -345,5 +346,154 @@ BEGIN
     RAISE EXCEPTION 'INVALID_CLAIM_ACTION' USING ERRCODE = '22023';
   END IF;
   RETURN jsonb_build_object('id', claim_row.id, 'leadId', claim_row.lead_id, 'requestKey', claim_row.request_key, 'state', claim_row.state, 'jobKey', claim_row.job_key);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION crm_append_native_conversation(p_agent TEXT, p_input JSONB, p_now TIMESTAMPTZ)
+RETURNS JSONB LANGUAGE plpgsql AS $$
+DECLARE
+  lead_key UUID;
+  conversation_key UUID := gen_random_uuid();
+  claim_key UUID;
+  lead_row crm_leads%ROWTYPE;
+  claim_row lead_outreach_claims%ROWTYPE;
+  existing_row lead_conversations%ROWTYPE;
+  source_at TIMESTAMPTZ;
+  effective_at TIMESTAMPTZ;
+  current_delivered INTEGER := 0;
+  first_contact BOOLEAN;
+  claim_matches BOOLEAN := FALSE;
+  violation BOOLEAN := FALSE;
+  requested_meta JSONB;
+  saved_meta JSONB;
+BEGIN
+  IF NULLIF(BTRIM(p_agent), '') IS NULL OR length(p_agent) > 200 THEN
+    RAISE EXCEPTION 'INVALID_NATIVE_AGENT' USING ERRCODE = '22023';
+  END IF;
+  IF (p_input->'nativeDelivery'->>'state') IS DISTINCT FROM 'delivered'
+    OR COALESCE(p_input->'nativeDelivery'->>'agent', '') IS DISTINCT FROM p_agent
+    OR jsonb_typeof(p_input->'messages') IS DISTINCT FROM 'array'
+    OR jsonb_array_length(COALESCE(p_input->'messages', '[]'::jsonb)) <> 1
+    OR p_input->>'channel' IS DISTINCT FROM 'whatsapp'
+    OR p_input->>'summary' IS DISTINCT FROM 'WhatsApp message delivered'
+    OR p_input->'messages'->0->>'direction' IS DISTINCT FROM 'outgoing'
+    OR p_input->'messages'->0->>'speaker' IS DISTINCT FROM p_agent
+    OR jsonb_typeof(p_input->'messages'->0->'body') IS DISTINCT FROM 'string'
+    OR NULLIF(p_input->>'segmentId', '') IS NULL
+    OR NULLIF(p_input->>'idempotencyKey', '') IS NULL THEN
+    RAISE EXCEPTION 'INVALID_NATIVE_DELIVERY' USING ERRCODE = '22023';
+  END IF;
+  lead_key := (p_input->>'leadId')::uuid;
+  claim_key := NULLIF(p_input->'nativeDelivery'->>'claimId', '')::uuid;
+  source_at := NULLIF(p_input->'nativeDelivery'->>'sourceDeliveredAt', '')::timestamptz;
+  IF NULLIF(p_input->'messages'->0->>'timestamp', '')::timestamptz IS DISTINCT FROM source_at THEN
+    RAISE EXCEPTION 'INVALID_NATIVE_DELIVERY_TIME' USING ERRCODE = '22023';
+  END IF;
+  IF source_at IS NOT NULL AND source_at > p_now THEN
+    RAISE EXCEPTION 'INVALID_NATIVE_DELIVERY_TIME' USING ERRCODE = '22023';
+  END IF;
+  effective_at := COALESCE(source_at, p_now);
+
+  PERFORM pg_advisory_xact_lock(hashtextextended('native-outreach-agent:' || p_agent, 0));
+  SELECT * INTO lead_row FROM crm_leads WHERE id = lead_key FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'LEAD_NOT_FOUND' USING ERRCODE = 'P0001'; END IF;
+  IF BTRIM(COALESCE(lead_row.data->>'assignedTo', '')) IS DISTINCT FROM p_agent THEN
+    RAISE EXCEPTION 'NOT_OWNED' USING ERRCODE = 'P0001';
+  END IF;
+
+  IF claim_key IS NOT NULL THEN
+    SELECT * INTO claim_row FROM lead_outreach_claims WHERE id = claim_key FOR UPDATE;
+    claim_matches := FOUND AND claim_row.lead_id = lead_key AND claim_row.agent = p_agent
+      AND claim_row.state IN ('reserved', 'submitted', 'delivered');
+  END IF;
+  SELECT COUNT(DISTINCT lead_id)::int INTO current_delivered
+    FROM lead_first_contacts WHERE kind = 'native' AND agent = p_agent
+      AND (effective_delivered_at AT TIME ZONE 'Africa/Johannesburg')::date = (p_now AT TIME ZONE 'Africa/Johannesburg')::date;
+  first_contact := NOT EXISTS (SELECT 1 FROM lead_first_contacts WHERE lead_id = lead_key);
+  violation := first_contact AND (NOT claim_matches OR current_delivered >= 8);
+  requested_meta := jsonb_build_object('state', 'delivered', 'claimId', claim_key, 'agent', p_agent,
+    'sourceDeliveredAt', source_at, 'contactedAt', effective_at, 'firstContact', first_contact,
+    'allocationViolation', violation);
+
+  INSERT INTO lead_conversations (id, lead_id, segment_id, channel, messages, summary, idempotency_key, occurred_at, native_delivery)
+  VALUES (conversation_key, lead_key, p_input->>'segmentId', p_input->>'channel', p_input->'messages',
+    p_input->>'summary', p_input->>'idempotencyKey', source_at, requested_meta)
+  ON CONFLICT DO NOTHING RETURNING * INTO existing_row;
+
+  IF NOT FOUND THEN
+    SELECT * INTO existing_row FROM lead_conversations
+      WHERE (lead_id = lead_key AND (idempotency_key = p_input->>'idempotencyKey' OR segment_id = p_input->>'segmentId'))
+        OR segment_id = p_input->>'segmentId'
+      ORDER BY created_at, id LIMIT 1;
+    IF NOT FOUND
+      OR existing_row.lead_id <> lead_key
+      OR existing_row.segment_id <> p_input->>'segmentId'
+      OR existing_row.channel <> p_input->>'channel'
+      OR existing_row.messages IS DISTINCT FROM p_input->'messages'
+      OR existing_row.summary <> p_input->>'summary'
+      OR existing_row.idempotency_key <> p_input->>'idempotencyKey'
+      OR existing_row.occurred_at IS DISTINCT FROM source_at
+      OR existing_row.native_delivery->>'state' IS DISTINCT FROM 'delivered'
+      OR NULLIF(existing_row.native_delivery->>'claimId', '') IS DISTINCT FROM NULLIF(requested_meta->>'claimId', '')
+      OR existing_row.native_delivery->>'agent' IS DISTINCT FROM p_agent
+      OR NULLIF(existing_row.native_delivery->>'sourceDeliveredAt', '')::timestamptz IS DISTINCT FROM source_at THEN
+      RAISE EXCEPTION 'IDEMPOTENCY_CONFLICT' USING ERRCODE = 'P0001';
+    END IF;
+    saved_meta := existing_row.native_delivery;
+    RETURN jsonb_build_object('conversation', jsonb_build_object('id', existing_row.id, 'leadId', existing_row.lead_id,
+      'segmentId', existing_row.segment_id, 'channel', existing_row.channel, 'messages', existing_row.messages,
+      'summary', existing_row.summary, 'occurredAt', existing_row.occurred_at, 'createdAt', existing_row.created_at,
+      'nativeDelivery', saved_meta), 'contactedAt', saved_meta->>'contactedAt',
+      'firstContact', COALESCE((saved_meta->>'firstContact')::boolean, FALSE),
+      'allocationViolation', COALESCE((saved_meta->>'allocationViolation')::boolean, FALSE));
+  END IF;
+
+  IF claim_matches AND claim_row.state <> 'delivered' THEN
+    UPDATE lead_outreach_claims SET state = 'delivered', updated_at = p_now WHERE id = claim_key;
+  END IF;
+  IF first_contact THEN
+    INSERT INTO lead_first_contacts (lead_id, kind, agent, source_delivered_at, effective_delivered_at, source_time_known, first_conversation_id)
+    VALUES (lead_key, 'native', p_agent, source_at, effective_at, source_at IS NOT NULL, conversation_key)
+    ON CONFLICT (lead_id) DO NOTHING;
+  END IF;
+  RETURN jsonb_build_object('conversation', jsonb_build_object('id', conversation_key, 'leadId', lead_key,
+    'segmentId', p_input->>'segmentId', 'channel', p_input->>'channel', 'messages', p_input->'messages',
+    'summary', p_input->>'summary', 'occurredAt', source_at, 'createdAt', existing_row.created_at, 'nativeDelivery', requested_meta),
+    'contactedAt', effective_at, 'firstContact', first_contact, 'allocationViolation', violation);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION crm_finalize_native_delivery(p_agent TEXT, p_lead_id UUID, p_conversation_id UUID)
+RETURNS JSONB LANGUAGE plpgsql AS $$
+DECLARE
+  lead_row crm_leads%ROWTYPE;
+  conversation_row lead_conversations%ROWTYPE;
+  delivery_at TIMESTAMPTZ;
+  prior_contact_at TIMESTAMPTZ;
+  next_status TEXT;
+BEGIN
+  SELECT * INTO lead_row FROM crm_leads WHERE id = p_lead_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'LEAD_NOT_FOUND' USING ERRCODE = 'P0001'; END IF;
+  IF BTRIM(COALESCE(lead_row.data->>'assignedTo', '')) IS DISTINCT FROM p_agent THEN
+    RAISE EXCEPTION 'NOT_OWNED' USING ERRCODE = 'P0001';
+  END IF;
+  SELECT * INTO conversation_row FROM lead_conversations
+    WHERE id = p_conversation_id AND lead_id = p_lead_id FOR SHARE;
+  IF NOT FOUND OR conversation_row.native_delivery->>'state' IS DISTINCT FROM 'delivered'
+    OR conversation_row.native_delivery->>'agent' IS DISTINCT FROM p_agent THEN
+    RAISE EXCEPTION 'NATIVE_CONVERSATION_NOT_FOUND' USING ERRCODE = 'P0001';
+  END IF;
+  delivery_at := NULLIF(conversation_row.native_delivery->>'contactedAt', '')::timestamptz;
+  IF delivery_at IS NULL THEN RAISE EXCEPTION 'INVALID_NATIVE_DELIVERY' USING ERRCODE = '22023'; END IF;
+  IF lead_row.data->>'lastContactedAt' ~ '^\d{4}-\d{2}-\d{2}' THEN
+    prior_contact_at := (lead_row.data->>'lastContactedAt')::timestamptz;
+  END IF;
+  next_status := lead_row.data->>'status';
+  UPDATE crm_leads SET data = CASE WHEN COALESCE(next_status, '') IN ('New', 'To contact', 'Contacted')
+      THEN jsonb_set(jsonb_set(data, '{lastContactedAt}', to_jsonb(CASE WHEN prior_contact_at > delivery_at THEN data->>'lastContactedAt' ELSE delivery_at::text END), TRUE), '{status}', '"Contacted"'::jsonb, TRUE)
+      ELSE jsonb_set(data, '{lastContactedAt}', to_jsonb(CASE WHEN prior_contact_at > delivery_at THEN data->>'lastContactedAt' ELSE delivery_at::text END), TRUE)
+    END, updated_at = NOW()
+    WHERE id = p_lead_id RETURNING * INTO lead_row;
+  RETURN lead_row.data || jsonb_build_object('id', lead_row.id, 'doNotContact', COALESCE(lead_row.do_not_contact, FALSE));
 END;
 $$;
