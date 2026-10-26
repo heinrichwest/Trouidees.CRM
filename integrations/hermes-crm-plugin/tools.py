@@ -309,6 +309,46 @@ def crm_get_stats(args: dict, client: Optional[CRMClient] = None, **kwargs) -> s
         return _tool_error(exc)
 
 
+def crm_claim_ready(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    request_key = args.get("request_key")
+    if not isinstance(request_key, str) or not request_key.strip() or len(request_key) > 200:
+        return _tool_json({"error": "request_key is required and must be at most 200 characters."})
+    try:
+        return _tool_json((client or _build_client()).claim_ready(request_key))
+    except Exception as exc:
+        return _tool_error(exc)
+
+
+def crm_update_claim(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    args = args if isinstance(args, dict) else {}
+    claim_id = _required_text(args, "claim_id")
+    action = args.get("action")
+    if not claim_id:
+        return _tool_json({"error": "claim_id is required."})
+    if not isinstance(action, dict):
+        return _tool_json({"error": "action must be a claim transition object."})
+    if action.get("state") == "submitted":
+        valid = set(action) == {"state", "jobKey"} and isinstance(action.get("jobKey"), str) and bool(action["jobKey"].strip()) and len(action["jobKey"]) <= 500
+    elif action.get("state") == "released":
+        valid = set(action) == {"state", "reason"} and action.get("reason") in {"not_submitted", "terminal_no_delivery"}
+    else:
+        valid = False
+    if not valid:
+        return _tool_json({"error": "Unsupported claim transition."})
+    try:
+        return _tool_json((client or _build_client()).update_claim(claim_id, action))
+    except Exception as exc:
+        return _tool_error(exc)
+
+
+def crm_get_outreach_quota(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
+    try:
+        return _tool_json((client or _build_client()).get_outreach_quota())
+    except Exception as exc:
+        return _tool_error(exc)
+
+
 def crm_get_conversations(args: dict, client: Optional[CRMClient] = None, **kwargs) -> str:
     args = args if isinstance(args, dict) else {}
     lead_id = _required_text(args, "lead_id")

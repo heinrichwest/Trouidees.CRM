@@ -72,6 +72,9 @@ def register(ctx) -> None:
         ("crm_create_lead", "CRM_CREATE_LEAD_SCHEMA", "crm_create_lead"),
         ("crm_get_activity", "CRM_GET_ACTIVITY_SCHEMA", "crm_get_activity"),
         ("crm_get_stats", "CRM_GET_STATS_SCHEMA", "crm_get_stats"),
+        ("crm_claim_ready", "CRM_CLAIM_READY_SCHEMA", "crm_claim_ready"),
+        ("crm_update_claim", "CRM_UPDATE_CLAIM_SCHEMA", "crm_update_claim"),
+        ("crm_get_outreach_quota", "CRM_GET_OUTREACH_QUOTA_SCHEMA", "crm_get_outreach_quota"),
     ):
         ctx.register_tool(
             name=schema_name,

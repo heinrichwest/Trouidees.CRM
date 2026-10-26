@@ -27,6 +27,9 @@ provides_tools:
   - crm_get_conversations
   - crm_add_note
   - crm_update_lead
+  - crm_claim_ready
+  - crm_update_claim
+  - crm_get_outreach_quota
 
 provides_hooks:
   - on_session_finalize
@@ -41,7 +44,8 @@ requires_env:
     description: >-
       Bearer API key issued to this agent's identity by a CRM admin. It needs
       leads:search, leads:read, leads:assign:self, conversations:read,
-      conversations:write, notes:write, and leads:update:limited scopes. Add
+      conversations:write, notes:write, leads:update:limited, outreach:claim,
+      outreach:read, and outreach:write scopes for native outreach. Add
       dnc:set if this agent must record do-not-contact requests. Store in Hermes's
       secret configuration, never in prompts, skills, or logs.
     secret: true
