@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS lead_research_readiness (
   lead_id UUID PRIMARY KEY REFERENCES crm_leads(id) ON DELETE CASCADE,
   research JSONB NOT NULL,
   messageable BOOLEAN NOT NULL DEFAULT FALSE,
+  requested_ready BOOLEAN NOT NULL DEFAULT FALSE,
   ready BOOLEAN NOT NULL DEFAULT FALSE,
   researched_at TIMESTAMPTZ NOT NULL,
   ready_at TIMESTAMPTZ,
@@ -159,3 +160,190 @@ DROP TRIGGER IF EXISTS crm_retain_legacy_outgoing_conversation_trigger ON lead_c
 CREATE TRIGGER crm_retain_legacy_outgoing_conversation_trigger
   AFTER INSERT OR UPDATE OF messages, native_delivery ON lead_conversations
   FOR EACH ROW EXECUTE FUNCTION crm_retain_legacy_outgoing_conversation();
+
+CREATE OR REPLACE FUNCTION crm_outreach_quota(p_agent TEXT, p_now TIMESTAMPTZ)
+RETURNS JSONB LANGUAGE SQL STABLE AS $$
+  SELECT jsonb_build_object(
+    'agent', p_agent,
+    'day', to_char((p_now AT TIME ZONE 'Africa/Johannesburg')::date, 'YYYY-MM-DD'),
+    'timezone', 'Africa/Johannesburg',
+    'target', 8,
+    'delivered', COALESCE((SELECT COUNT(DISTINCT lead_id)::int FROM lead_first_contacts
+      WHERE kind = 'native' AND agent = p_agent
+        AND (effective_delivered_at AT TIME ZONE 'Africa/Johannesburg')::date = (p_now AT TIME ZONE 'Africa/Johannesburg')::date), 0),
+    'outstanding', COALESCE((SELECT COUNT(*)::int FROM lead_outreach_claims
+      WHERE agent = p_agent AND state IN ('reserved', 'submitted')), 0),
+    'remaining', GREATEST(0, 8
+      - COALESCE((SELECT COUNT(DISTINCT lead_id)::int FROM lead_first_contacts
+        WHERE kind = 'native' AND agent = p_agent
+          AND (effective_delivered_at AT TIME ZONE 'Africa/Johannesburg')::date = (p_now AT TIME ZONE 'Africa/Johannesburg')::date), 0)
+      - COALESCE((SELECT COUNT(*)::int FROM lead_outreach_claims
+        WHERE agent = p_agent AND state IN ('reserved', 'submitted')), 0))
+  )
+$$;
+
+ALTER TABLE lead_research_readiness
+  ADD COLUMN IF NOT EXISTS requested_ready BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE OR REPLACE FUNCTION crm_put_lead_research(
+  p_lead_id UUID,
+  p_research JSONB,
+  p_messageable BOOLEAN,
+  p_ready BOOLEAN,
+  p_researched_at TIMESTAMPTZ,
+  p_actor_user_id UUID
+) RETURNS JSONB LANGUAGE plpgsql AS $$
+DECLARE
+  lead_row crm_leads%ROWTYPE;
+  current_row lead_research_readiness%ROWTYPE;
+  saved_row lead_research_readiness%ROWTYPE;
+  may_publish BOOLEAN;
+BEGIN
+  SELECT * INTO lead_row FROM crm_leads WHERE id = p_lead_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'LEAD_NOT_FOUND' USING ERRCODE = 'P0001'; END IF;
+
+  may_publish := p_ready AND p_messageable
+    AND COALESCE(BTRIM(lead_row.data->>'assignedTo'), '') = ''
+    AND COALESCE(lead_row.data->>'status', '') IN ('New', 'To contact')
+    AND NOT COALESCE(lead_row.do_not_contact, FALSE)
+    AND NOT EXISTS (SELECT 1 FROM lead_first_contacts WHERE lead_id = p_lead_id);
+
+  SELECT * INTO current_row FROM lead_research_readiness WHERE lead_id = p_lead_id FOR UPDATE;
+  IF FOUND THEN
+    IF current_row.researched_at > p_researched_at THEN
+      RETURN jsonb_build_object('leadId', current_row.lead_id, 'researchedAt', current_row.researched_at,
+        'ready', current_row.ready, 'messageable', current_row.messageable, 'research', current_row.research, 'readyAt', current_row.ready_at);
+    END IF;
+    IF current_row.researched_at = p_researched_at THEN
+      IF current_row.research IS DISTINCT FROM p_research OR current_row.messageable IS DISTINCT FROM p_messageable OR current_row.requested_ready IS DISTINCT FROM p_ready THEN
+        RAISE EXCEPTION 'RESEARCH_CONFLICT' USING ERRCODE = 'P0001';
+      END IF;
+      RETURN jsonb_build_object('leadId', current_row.lead_id, 'researchedAt', current_row.researched_at,
+        'ready', current_row.ready, 'messageable', current_row.messageable, 'research', current_row.research, 'readyAt', current_row.ready_at);
+    END IF;
+  END IF;
+
+  INSERT INTO lead_research_readiness (lead_id, research, messageable, requested_ready, ready, researched_at, ready_at, actor_user_id, updated_at)
+  VALUES (p_lead_id, p_research, p_messageable, p_ready, may_publish, p_researched_at,
+    CASE WHEN may_publish THEN NOW() END, p_actor_user_id, NOW())
+  ON CONFLICT (lead_id) DO UPDATE SET research = EXCLUDED.research,
+    messageable = EXCLUDED.messageable, requested_ready = EXCLUDED.requested_ready, ready = EXCLUDED.ready, researched_at = EXCLUDED.researched_at,
+    ready_at = CASE WHEN EXCLUDED.ready THEN COALESCE(lead_research_readiness.ready_at, EXCLUDED.researched_at) ELSE NULL END,
+    actor_user_id = EXCLUDED.actor_user_id, updated_at = NOW()
+  RETURNING * INTO saved_row;
+  RETURN jsonb_build_object('leadId', saved_row.lead_id, 'researchedAt', saved_row.researched_at,
+    'ready', saved_row.ready, 'messageable', saved_row.messageable, 'research', saved_row.research, 'readyAt', saved_row.ready_at);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION crm_claim_ready_lead(p_agent TEXT, p_request_key TEXT, p_now TIMESTAMPTZ)
+RETURNS JSONB LANGUAGE plpgsql AS $$
+DECLARE
+  existing_claim lead_outreach_claims%ROWTYPE;
+  new_claim lead_outreach_claims%ROWTYPE;
+  lead_row crm_leads%ROWTYPE;
+  research_row lead_research_readiness%ROWTYPE;
+  quota_row JSONB;
+  day_delivered INT;
+  pending INT;
+  reason_value TEXT;
+BEGIN
+  IF NULLIF(BTRIM(p_agent), '') IS NULL OR length(p_agent) > 200 OR length(p_request_key) NOT BETWEEN 1 AND 200 THEN
+    RAISE EXCEPTION 'INVALID_CLAIM_REQUEST' USING ERRCODE = '22023';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('native-outreach-agent:' || p_agent, 0));
+
+  SELECT * INTO existing_claim FROM lead_outreach_claims WHERE agent = p_agent AND request_key = p_request_key FOR UPDATE;
+  IF FOUND THEN
+    SELECT * INTO lead_row FROM crm_leads WHERE id = existing_claim.lead_id;
+    SELECT * INTO research_row FROM lead_research_readiness WHERE lead_id = existing_claim.lead_id;
+    quota_row := crm_outreach_quota(p_agent, p_now);
+    RETURN jsonb_build_object(
+      'claim', jsonb_build_object('id', existing_claim.id, 'leadId', existing_claim.lead_id, 'requestKey', existing_claim.request_key, 'state', existing_claim.state, 'jobKey', existing_claim.job_key),
+      'lead', lead_row.data || jsonb_build_object('id', lead_row.id, 'doNotContact', COALESCE(lead_row.do_not_contact, FALSE)),
+      'research', jsonb_build_object('leadId', research_row.lead_id, 'researchedAt', research_row.researched_at, 'ready', research_row.ready,
+        'messageable', research_row.messageable, 'research', research_row.research, 'readyAt', research_row.ready_at),
+      'quota', quota_row, 'reason', NULL);
+  END IF;
+
+  quota_row := crm_outreach_quota(p_agent, p_now);
+  day_delivered := (quota_row->>'delivered')::int;
+  pending := (quota_row->>'outstanding')::int;
+  IF day_delivered >= 8 THEN
+    reason_value := 'daily_cap';
+  ELSIF day_delivered + pending >= 8 THEN
+    reason_value := 'capacity_held';
+  ELSE
+    SELECT leads.* INTO lead_row
+    FROM crm_leads leads
+    JOIN lead_research_readiness research ON research.lead_id = leads.id AND research.ready AND research.messageable
+    WHERE COALESCE(BTRIM(leads.data->>'assignedTo'), '') = ''
+      AND COALESCE(leads.data->>'status', '') IN ('New', 'To contact')
+      AND NOT COALESCE(leads.do_not_contact, FALSE)
+      AND NOT EXISTS (SELECT 1 FROM lead_first_contacts contacts WHERE contacts.lead_id = leads.id)
+      AND NOT EXISTS (SELECT 1 FROM lead_outreach_claims claims WHERE claims.lead_id = leads.id AND claims.state IN ('reserved', 'submitted'))
+    ORDER BY research.ready_at, leads.id
+    LIMIT 1 FOR UPDATE OF leads SKIP LOCKED;
+    IF NOT FOUND THEN
+      reason_value := 'pool_empty';
+    ELSE
+      UPDATE crm_leads SET data = jsonb_set(data, '{assignedTo}', to_jsonb(p_agent::text), TRUE), updated_at = p_now
+        WHERE id = lead_row.id RETURNING * INTO lead_row;
+      INSERT INTO lead_outreach_claims (agent, lead_id, request_key, state, created_at, updated_at)
+        VALUES (p_agent, lead_row.id, p_request_key, 'reserved', p_now, p_now) RETURNING * INTO new_claim;
+      SELECT * INTO research_row FROM lead_research_readiness WHERE lead_id = lead_row.id;
+      quota_row := crm_outreach_quota(p_agent, p_now);
+      RETURN jsonb_build_object(
+        'claim', jsonb_build_object('id', new_claim.id, 'leadId', new_claim.lead_id, 'requestKey', new_claim.request_key, 'state', new_claim.state, 'jobKey', new_claim.job_key),
+        'lead', lead_row.data || jsonb_build_object('id', lead_row.id, 'doNotContact', COALESCE(lead_row.do_not_contact, FALSE)),
+        'research', jsonb_build_object('leadId', research_row.lead_id, 'researchedAt', research_row.researched_at, 'ready', research_row.ready,
+          'messageable', research_row.messageable, 'research', research_row.research, 'readyAt', research_row.ready_at),
+        'quota', quota_row, 'reason', NULL);
+    END IF;
+  END IF;
+
+  quota_row := crm_outreach_quota(p_agent, p_now);
+  RETURN jsonb_build_object('claim', NULL, 'lead', NULL, 'research', NULL, 'quota', quota_row, 'reason', reason_value);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION crm_update_outreach_claim(p_agent TEXT, p_claim_id UUID, p_action JSONB, p_now TIMESTAMPTZ)
+RETURNS JSONB LANGUAGE plpgsql AS $$
+DECLARE
+  claim_row lead_outreach_claims%ROWTYPE;
+  lead_owner TEXT;
+BEGIN
+  SELECT * INTO claim_row FROM lead_outreach_claims WHERE id = p_claim_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'CLAIM_NOT_FOUND' USING ERRCODE = 'P0001'; END IF;
+  IF claim_row.agent <> p_agent THEN RAISE EXCEPTION 'CLAIM_FORBIDDEN' USING ERRCODE = 'P0001'; END IF;
+
+  IF p_action->>'state' = 'submitted' THEN
+    IF NULLIF(BTRIM(p_action->>'jobKey'), '') IS NULL THEN RAISE EXCEPTION 'INVALID_JOB_KEY' USING ERRCODE = '22023'; END IF;
+    IF claim_row.state = 'submitted' AND claim_row.job_key = p_action->>'jobKey' THEN
+      RETURN jsonb_build_object('id', claim_row.id, 'leadId', claim_row.lead_id, 'requestKey', claim_row.request_key, 'state', claim_row.state, 'jobKey', claim_row.job_key);
+    END IF;
+    IF claim_row.state <> 'reserved' OR claim_row.job_key IS NOT NULL THEN RAISE EXCEPTION 'CLAIM_CONFLICT' USING ERRCODE = 'P0001'; END IF;
+    UPDATE lead_outreach_claims SET state = 'submitted', job_key = p_action->>'jobKey', updated_at = p_now
+      WHERE id = p_claim_id RETURNING * INTO claim_row;
+  ELSIF p_action->>'state' = 'released' THEN
+    IF p_action->>'reason' NOT IN ('not_submitted', 'terminal_no_delivery') THEN RAISE EXCEPTION 'INVALID_RELEASE_REASON' USING ERRCODE = '22023'; END IF;
+    IF claim_row.state = 'released' AND claim_row.release_reason = p_action->>'reason' THEN
+      RETURN jsonb_build_object('id', claim_row.id, 'leadId', claim_row.lead_id, 'requestKey', claim_row.request_key, 'state', claim_row.state, 'jobKey', claim_row.job_key);
+    END IF;
+    IF EXISTS (SELECT 1 FROM lead_first_contacts WHERE lead_id = claim_row.lead_id) THEN RAISE EXCEPTION 'CLAIM_CONFLICT' USING ERRCODE = 'P0001'; END IF;
+    IF (p_action->>'reason' = 'not_submitted' AND claim_row.state <> 'reserved')
+      OR (p_action->>'reason' = 'terminal_no_delivery' AND claim_row.state <> 'submitted') THEN
+      RAISE EXCEPTION 'CLAIM_CONFLICT' USING ERRCODE = 'P0001';
+    END IF;
+    SELECT BTRIM(COALESCE(data->>'assignedTo', '')) INTO lead_owner FROM crm_leads WHERE id = claim_row.lead_id FOR UPDATE;
+    IF lead_owner IS DISTINCT FROM '' AND lead_owner IS DISTINCT FROM p_agent THEN RAISE EXCEPTION 'CLAIM_CONFLICT' USING ERRCODE = 'P0001'; END IF;
+    UPDATE crm_leads SET data = jsonb_set(data, '{assignedTo}', '""'::jsonb, TRUE), updated_at = p_now
+      WHERE id = claim_row.lead_id AND NOT EXISTS (SELECT 1 FROM lead_first_contacts WHERE lead_id = claim_row.lead_id);
+    UPDATE lead_outreach_claims SET state = 'released', release_reason = p_action->>'reason', updated_at = p_now
+      WHERE id = p_claim_id RETURNING * INTO claim_row;
+  ELSE
+    RAISE EXCEPTION 'INVALID_CLAIM_ACTION' USING ERRCODE = '22023';
+  END IF;
+  RETURN jsonb_build_object('id', claim_row.id, 'leadId', claim_row.lead_id, 'requestKey', claim_row.request_key, 'state', claim_row.state, 'jobKey', claim_row.job_key);
+END;
+$$;
