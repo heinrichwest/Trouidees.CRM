@@ -69,6 +69,27 @@ test("batch start requires admin before touching the CRM store", async () => {
   assert.equal(calls, 0);
 });
 
+test("batch start reports an actionable error when Neon enrichment migrations are missing", async () => {
+  const db = {
+    async sql() {
+      throw Object.assign(new Error("function crm_create_enrichment_batch(uuid, text, uuid[]) does not exist"), { code: "42883" });
+    },
+  };
+  const request = harness({
+    body: {
+      requestKey: "missing-migration",
+      leadIds: ["20000000-0000-4000-8000-000000000001"],
+    },
+    user: { id: "10000000-0000-4000-8000-000000000001", role: "admin", active: true },
+    db,
+  });
+
+  await handleEnrichmentRequest(request);
+
+  assert.equal(request.response.status, 503);
+  assert.equal(request.response.body.error, "CRM enrichment database schema is missing. Apply the Neon migrations, then retry.");
+});
+
 test("batch start rejects duplicate or excessive selections before persistence", async () => {
   let calls = 0;
   const args = harness({ body: { requestKey: "request-1", leadIds: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000001"] }, db: { sql: async () => { calls += 1; return []; } } });
