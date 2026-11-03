@@ -18,3 +18,7 @@ test-results/
 
 .vercel
 .env*
+
+# Python bytecode from the Hermes CRM plugin tests
+__pycache__/
+*.py[cod]
