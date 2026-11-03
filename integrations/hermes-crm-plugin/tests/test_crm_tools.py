@@ -39,8 +39,8 @@ class FakeCRM:
         self.calls.append(("update_lead", lead_id, fields))
         return {"lead": {"id": lead_id, **fields}}
 
-    def claim_ready(self, request_key):
-        self.calls.append(("claim_ready", request_key))
+    def claim_ready(self, request_key, lead_types=None):
+        self.calls.append(("claim_ready", request_key) if lead_types is None else ("claim_ready", request_key, lead_types))
         return {"claim":{"id":"claim-1"},"quota":{"remaining":7}}
 
     def update_claim(self, claim_id, action):
@@ -122,6 +122,16 @@ class CRMLeadToolTests(unittest.TestCase):
         self.assertIn("error", result)
         self.assertNotIn("private-key", json.dumps(result))
         self.assertNotIn("customer-message", json.dumps(result))
+
+    def test_claim_tool_passes_lead_types_and_rejects_bad_ones(self):
+        with mock.patch.object(tools, "_build_client", return_value=self.client):
+            ok = result_json(tools.crm_claim_ready({"request_key":"slot-1", "lead_types":["Photographers - South Africa Mobile"]}))
+            bad = result_json(tools.crm_claim_ready({"request_key":"slot-2", "lead_types":[]}))
+            wrong = result_json(tools.crm_claim_ready({"request_key":"slot-3", "lead_types":"Photographers"}))
+        self.assertEqual(ok["claim"]["id"], "claim-1")
+        self.assertIn("lead_types", bad["error"])
+        self.assertIn("lead_types", wrong["error"])
+        self.assertEqual(self.client.calls, [("claim_ready", "slot-1", ["Photographers - South Africa Mobile"])])
 
     def test_outreach_tools_claim_transition_and_quota(self):
         with mock.patch.object(tools, "_build_client", return_value=self.client):

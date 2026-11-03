@@ -69,6 +69,13 @@ def _to_crm_timestamp(timestamp) -> Optional[str]:
     return timestamp
 
 
+
+def _lead_types(value) -> list:
+    if (not isinstance(value, (list, tuple)) or not 1 <= len(value) <= 20
+            or any(not isinstance(t, str) or not t.strip() or len(t) > 100 for t in value)):
+        raise ValueError("lead_types must be 1 to 20 nonblank lead type names of at most 100 characters")
+    return list(dict.fromkeys(t.strip() for t in value))
+
 class CRMClientError(RuntimeError):
     """Base class for CRM client errors. Messages are always secret-free."""
 
@@ -190,10 +197,14 @@ class CRMClient:
     def get_stats(self) -> dict:
         return self._request("GET", f"{self.base_url}/api/agent/stats")
 
-    def claim_ready(self, request_key: str) -> dict:
+    def claim_ready(self, request_key: str, lead_types: Optional[list] = None) -> dict:
+        """Claim the next ready lead; lead_types limits the pool to those CRM lead types."""
         if not isinstance(request_key, str) or not request_key.strip() or len(request_key) > 200:
             raise ValueError("request_key must contain 1 to 200 nonblank characters")
-        return self._request("POST", f"{self.base_url}/api/agent/outreach/claim", {"requestKey": request_key})
+        payload = {"requestKey": request_key}
+        if lead_types is not None:
+            payload["leadTypes"] = _lead_types(lead_types)
+        return self._request("POST", f"{self.base_url}/api/agent/outreach/claim", payload)
 
     def update_claim(self, claim_id: str, action: dict) -> dict:
         if not claim_id or not isinstance(action, dict):

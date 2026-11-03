@@ -416,6 +416,15 @@ class NativeOutreachClientTests(unittest.TestCase):
         self.assertTrue(request.full_url.endswith("/api/agent/outreach/claim"))
         self.assertEqual(json.loads(request.data), {"requestKey":"batch-1-slot-1"})
 
+    def test_claim_ready_sends_lead_types_only_when_given(self):
+        with mock.patch.object(urllib.request, "urlopen", self._respond({"claim":None})):
+            self.client.claim_ready("slot-1", [" Photographers - South Africa Mobile ", "Photographers - South Africa Mobile"])
+        request, _ = self.requests[0]
+        self.assertEqual(json.loads(request.data), {"requestKey":"slot-1", "leadTypes":["Photographers - South Africa Mobile"]})
+        for bad in ([], [""], "Photographers", ["x" * 101]):
+            with self.assertRaises(ValueError):
+                self.client.claim_ready("slot-1", bad)
+
     def test_claim_transition_quota_contact_resolution_and_finalization_use_exact_routes(self):
         with mock.patch.object(urllib.request, "urlopen", self._respond({"ok":True})):
             self.client.update_claim("claim-1", {"state":"submitted", "jobKey":"job-1"})

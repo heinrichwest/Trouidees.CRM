@@ -64,6 +64,13 @@ test("claim and quota routes use the authenticated agent identity", async () => 
     await handleAgentRequest({ ...ctx, request:ctx.request("POST", "/api/agent/outreach/claim", { requestKey:"slot-1" }) });
     assert.equal(ctx.result.status, 200);
     assert.equal(ctx.calls.find((call) => call.query?.includes("crm_claim_ready_lead")).params[0], "Andrew");
+    const typed = setup({ sqlResult:(query) => query.includes("crm_claim_ready_lead") ? [{ result:{ claim:null, lead:null, research:null, quota:{}, reason:"pool_empty" } }] : [] });
+    await handleAgentRequest({ ...typed, request:typed.request("POST", "/api/agent/outreach/claim", { requestKey:"slot-2", leadTypes:["Photographers - South Africa Mobile"] }) });
+    assert.equal(typed.result.status, 200);
+    assert.deepEqual(typed.calls.find((call) => call.query?.includes("crm_claim_ready_lead")).params[3], ["Photographers - South Africa Mobile"]);
+    const badTypes = setup();
+    await handleAgentRequest({ ...badTypes, request:badTypes.request("POST", "/api/agent/outreach/claim", { requestKey:"slot-3", leadTypes:[] }) });
+    assert.equal(badTypes.result.status, 400);
     await handleAgentRequest({ ...ctx, request:ctx.request("GET", "/api/agent/outreach/quota") });
     assert.equal(ctx.result.body.quota.delivered, 2);
     const claimUpdate = setup({ sqlResult:(query) => query.includes("crm_update_outreach_claim") ? [{ result:{ id:claimId, state:"submitted", jobKey:"job-1" } }] : [] });

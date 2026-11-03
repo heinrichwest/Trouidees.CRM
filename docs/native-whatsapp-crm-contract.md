@@ -11,7 +11,7 @@ gate.
 
 | Method and route | Scope | Purpose |
 |---|---|---|
-| `POST /api/agent/outreach/claim` | `outreach:claim` | Atomically claim one ready, CRM researched lead using a durable `requestKey`. |
+| `POST /api/agent/outreach/claim` | `outreach:claim` | Atomically claim one ready, CRM researched lead using a durable `requestKey`. Optional `leadTypes` (1 to 20 lead type names) limits the pool to the agent's markets; omitted, any type may be claimed. |
 | `PATCH /api/agent/outreach/claims/:id` | `outreach:claim` | Mark a reservation submitted with a stable gateway `jobKey`, or release it only when delivery cannot occur. |
 | `GET /api/agent/outreach/quota` | `outreach:read` | Read Johannesburg-day delivered and outstanding capacity for the authenticated key label. |
 | `GET /api/agent/outreach/resolve-contact?contact=...` | `leads:search` | Resolve an exact normalized contact only when one visible lead matches. |
@@ -136,8 +136,9 @@ generic no-reply field.
   the shared ready pool.
 - Capacity shortfalls must report delivered, pending, target, and shortfall
   separately. Drafts, accepted jobs, and held jobs are not deliveries.
-- Apply `scripts/migrations/2026-10-25-native-whatsapp-crm.sql` and
-  `scripts/migrations/2026-10-26-native-no-reply.sql` only later through the
+- Apply `scripts/migrations/2026-10-25-native-whatsapp-crm.sql`,
+  `scripts/migrations/2026-10-26-native-no-reply.sql` and
+  `scripts/migrations/2026-11-03-claim-lead-types.sql` only later through the
   reviewed migration procedure against the intended database. This work
   applied migrations only to a disposable local PostgreSQL database.
 - Keep the native gate off during setup and tests unless an isolated test
