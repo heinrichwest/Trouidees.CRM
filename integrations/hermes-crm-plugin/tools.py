@@ -314,8 +314,13 @@ def crm_claim_ready(args: dict, client: Optional[CRMClient] = None, **kwargs) ->
     request_key = args.get("request_key")
     if not isinstance(request_key, str) or not request_key.strip() or len(request_key) > 200:
         return _tool_json({"error": "request_key is required and must be at most 200 characters."})
+    lead_types = args.get("lead_types")
+    if lead_types is not None and (not isinstance(lead_types, list) or not 1 <= len(lead_types) <= 20
+                                   or any(not isinstance(t, str) or not t.strip() or len(t) > 100 for t in lead_types)):
+        return _tool_json({"error": "lead_types must be 1 to 20 nonblank lead type names of at most 100 characters."})
     try:
-        return _tool_json((client or _build_client()).claim_ready(request_key))
+        c = client or _build_client()
+        return _tool_json(c.claim_ready(request_key, lead_types) if lead_types is not None else c.claim_ready(request_key))
     except Exception as exc:
         return _tool_error(exc)
 

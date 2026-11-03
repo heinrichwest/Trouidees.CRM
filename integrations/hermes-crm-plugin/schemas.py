@@ -234,6 +234,8 @@ CRM_CLAIM_READY_SCHEMA = {
     ),
     "parameters": {"type":"object", "properties": {
         "request_key":{"type":"string", "description":"Opaque stable key (1–200 characters), such as a durable batch-and-slot ID."},
+        "lead_types":{"type":"array", "items":{"type":"string"}, "minItems":1, "maxItems":20,
+                      "description":"Only claim leads of these CRM lead types (this agent's markets). Omit to allow any type."},
     }, "required":["request_key"], "additionalProperties":False},
 }
 
