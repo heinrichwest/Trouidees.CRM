@@ -841,7 +841,7 @@ async function loadAgentKeys() {
   if (!response.ok) { $("agentKeysMeta").textContent = "Admin access required"; return; }
   const { keys } = await response.json();
   $("agentKeysMeta").textContent = `${keys.length} keys`;
-  $("agentKeysTable").querySelector("tbody").innerHTML = keys.map((key) => `<tr><td>${escapeHtml(key.label)}</td><td>${escapeHtml((key.scopes || []).join(", "))}</td><td><span class="status-chip">${key.active ? "Active" : "Revoked"}</span></td><td>${escapeHtml(key.createdAt ? new Date(key.createdAt).toLocaleDateString() : "—")}</td><td>${escapeHtml(key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : "Never")}</td><td>${key.active ? `<button class="button secondary rename-agent-key" data-id="${key.id}" data-label="${escapeHtml(key.label)}" type="button">Rename</button> <button class="button secondary revoke-agent-key" data-id="${key.id}" type="button">Revoke</button>` : ""}</td></tr>`).join("");
+  $("agentKeysTable").querySelector("tbody").innerHTML = keys.map((key) => `<tr><td>${escapeHtml(key.label)}</td><td>${escapeHtml((key.scopes || []).join(", "))}</td><td><span class="status-chip">${key.active ? "Active" : "Revoked"}</span></td><td>${escapeHtml(key.createdAt ? new Date(key.createdAt).toLocaleDateString() : "—")}</td><td>${escapeHtml(key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : "Never")}</td><td>${key.active ? `<button class="button secondary edit-agent-key-scopes" data-id="${key.id}" data-label="${escapeHtml(key.label)}" data-scopes="${escapeHtml(JSON.stringify(key.scopes || []))}" type="button">Edit scopes</button> <button class="button secondary rename-agent-key" data-id="${key.id}" data-label="${escapeHtml(key.label)}" type="button">Rename</button> <button class="button secondary revoke-agent-key" data-id="${key.id}" type="button">Revoke</button>` : ""}</td></tr>`).join("");
 }
 
 $("agentKeyForm").addEventListener("submit", async (event) => {
@@ -857,7 +857,30 @@ $("agentKeyForm").addEventListener("submit", async (event) => {
   alert(`Agent key created for ${payload.key.label}.\\n\\nSecret (shown once — copy it now):\\n${payload.secret}`);
 });
 
+$("closeAgentKeyScopes").addEventListener("click", () => $("agentKeyScopesDialog").close());
+$("agentKeyScopesForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const scopes = [...document.querySelectorAll('input[name="editAgentScope"]:checked')].map((input) => input.value);
+  if (!scopes.length) return alert("Select at least one scope.");
+  const response = await fetch(`/api/admin/agent-keys/${$("editAgentKeyId").value}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ scopes }) });
+  const payload = await response.json();
+  if (!response.ok) return alert(payload.error || "Could not update this key's scopes.");
+  $("agentKeyScopesDialog").close();
+  await loadAgentKeys();
+});
+
 $("agentKeysTable").addEventListener("click", async (event) => {
+  const scopesButton = event.target.closest("button.edit-agent-key-scopes[data-id]");
+  if (scopesButton) {
+    // Offer exactly the scopes the create form offers, so the two lists cannot drift apart.
+    const current = new Set(JSON.parse(scopesButton.dataset.scopes || "[]"));
+    const offered = [...document.querySelectorAll('#agentKeyForm input[name="agentScope"]')].map((input) => input.value);
+    $("editAgentKeyId").value = scopesButton.dataset.id;
+    $("editAgentKeyTitle").textContent = `Edit scopes: ${scopesButton.dataset.label || "agent key"}`;
+    $("editAgentKeyScopes").innerHTML = `<span>Scopes</span>${offered.map((scope) => `<label class="toggle"><input type="checkbox" name="editAgentScope" value="${escapeHtml(scope)}"${current.has(scope) ? " checked" : ""}><span>${escapeHtml(scope)}</span></label>`).join("")}`;
+    $("agentKeyScopesDialog").showModal();
+    return;
+  }
   const renameButton = event.target.closest("button.rename-agent-key[data-id]");
   if (renameButton) {
     const next = prompt("New label for this agent key:", renameButton.dataset.label || "");
