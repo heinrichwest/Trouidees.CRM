@@ -78,3 +78,22 @@ test("the Edit scopes dialog is built from the create form's scope list, so the 
   const offered = [...html.matchAll(/name="agentScope" value="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual([...offered].sort(), [...AGENT_SCOPES].sort());
 });
+
+// The Agent keys table was always empty: the page called GET /api/admin/agent-keys but the server
+// only had POST, PATCH and DELETE for that path, so the list fell through to "Admin route not found".
+test("GET /api/admin/agent-keys lists keys for administrators and never returns the token hash", async () => {
+  const rows = [{ id: keyId, label: "Daniel", scopes: ["leads:read"], active: true, createdAt: "2026-09-22", lastUsedAt: null }];
+  const store = fakeStore(rows);
+  const call = async (role) => {
+    const result = {};
+    const response = { writeHead(status) { result.status = status; }, end(text) { result.body = JSON.parse(text); } };
+    const request = { method: "GET", url: "/api/admin/agent-keys", headers: { host: "localhost" } };
+    await handleAgentAdminRequest({ request, response, store, user: { id: "u1", active: true, role } });
+    return result;
+  };
+  const ok = await call("admin");
+  assert.equal(ok.status, 200);
+  assert.deepEqual(ok.body.keys, rows);
+  assert.doesNotMatch(store.calls[0].query, /token_hash/);
+  assert.equal((await call("sales")).status, 403);
+});
