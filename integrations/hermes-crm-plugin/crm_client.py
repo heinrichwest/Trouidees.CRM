@@ -14,8 +14,7 @@ translates that internal shape into the CRM's exact wire contract, right
 before the POST.
 
 Reads no secrets from prompts or logs; the API key is only ever read from
-environment variables that Hermes populates from its own secret
-configuration (CRM_API_BASE_URL, CRM_AGENT_API_KEY). Never prints the key or
+serving profile's Hermes secret scope (CRM_API_BASE_URL, CRM_AGENT_API_KEY). Never prints the key or
 message bodies.
 """
 

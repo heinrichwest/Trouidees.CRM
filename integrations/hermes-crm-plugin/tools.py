@@ -123,12 +123,25 @@ def crm_queue_session(args: dict, **kwargs) -> str:
     return json.dumps({"queued": True, "segment_id": segment_id})
 
 
+def _secret(name: str, default: Optional[str] = None) -> Optional[str]:
+    """Read a credential from the serving profile's secret scope.
+
+    A multiplexing gateway keeps each profile's .env out of os.environ, so the scope is the only
+    place the profile's CRM key lives. Outside Hermes (scripts, standalone tests) it is the environment.
+    """
+    try:
+        from agent.secret_scope import get_secret
+    except ImportError:
+        return os.environ.get(name, default)
+    return get_secret(name, default)
+
+
 def _build_client() -> CRMClient:
-    base_url = os.environ.get("CRM_API_BASE_URL")
-    api_key = os.environ.get("CRM_AGENT_API_KEY")
+    base_url = _secret("CRM_API_BASE_URL")
+    api_key = _secret("CRM_AGENT_API_KEY")
     if not base_url or not api_key:
         raise CRMClientError("CRM_API_BASE_URL and CRM_AGENT_API_KEY must be configured")
-    timeout_seconds = float(os.environ.get("CRM_API_TIMEOUT_SECONDS", "15"))
+    timeout_seconds = float(_secret("CRM_API_TIMEOUT_SECONDS", "15"))
     return CRMClient(base_url, api_key, timeout_seconds=timeout_seconds)
 
 
